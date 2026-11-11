@@ -343,6 +343,8 @@ export function ThreeViewer({
         active = false;
       };
     }
+
+    setLoading(false);
   }, [fileUrl, fileBuffer, format, processBuffer]);
 
   // Handle Shading Mode Change
