@@ -22,30 +22,35 @@ export interface Loaded3DModel {
 
 /**
  * Calculates volume of a closed triangle mesh using signed tetrahedron sum.
+ * Uses zero-allocation raw typed-array scalar triple product for maximum speed.
  */
 function calculateMeshVolume(geometry: THREE.BufferGeometry): number {
   let volume = 0;
   const pos = geometry.attributes.position;
   if (!pos) return 0;
 
-  const p1 = new THREE.Vector3();
-  const p2 = new THREE.Vector3();
-  const p3 = new THREE.Vector3();
+  const array = pos.array;
 
   if (geometry.index) {
     const indices = geometry.index.array;
     for (let i = 0; i < indices.length; i += 3) {
-      p1.fromBufferAttribute(pos, indices[i]);
-      p2.fromBufferAttribute(pos, indices[i + 1]);
-      p3.fromBufferAttribute(pos, indices[i + 2]);
-      volume += p1.dot(p2.cross(p3)) / 6.0;
+      const i1 = indices[i] * 3;
+      const i2 = indices[i + 1] * 3;
+      const i3 = indices[i + 2] * 3;
+
+      const x1 = array[i1], y1 = array[i1 + 1], z1 = array[i1 + 2];
+      const x2 = array[i2], y2 = array[i2 + 1], z2 = array[i2 + 2];
+      const x3 = array[i3], y3 = array[i3 + 1], z3 = array[i3 + 2];
+
+      volume += (x1 * (y2 * z3 - z2 * y3) - y1 * (x2 * z3 - z2 * x3) + z1 * (x2 * y3 - y2 * x3)) / 6.0;
     }
   } else {
-    for (let i = 0; i < pos.count; i += 3) {
-      p1.fromBufferAttribute(pos, i);
-      p2.fromBufferAttribute(pos, i + 1);
-      p3.fromBufferAttribute(pos, i + 2);
-      volume += p1.dot(p2.cross(p3)) / 6.0;
+    for (let i = 0; i < array.length; i += 9) {
+      const x1 = array[i], y1 = array[i + 1], z1 = array[i + 2];
+      const x2 = array[i + 3], y2 = array[i + 4], z2 = array[i + 5];
+      const x3 = array[i + 6], y3 = array[i + 7], z3 = array[i + 8];
+
+      volume += (x1 * (y2 * z3 - z2 * y3) - y1 * (x2 * z3 - z2 * x3) + z1 * (x2 * y3 - y2 * x3)) / 6.0;
     }
   }
 

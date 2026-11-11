@@ -184,12 +184,21 @@ export default function AdminPage() {
     }
   };
 
-  // Copy share URL
-  const copyShareLink = (slug: string) => {
+  // Copy share URL with privacy check
+  const copyShareLink = async (model: ModelRecord) => {
+    if (!model.isPublic) {
+      const confirmPublic = confirm(
+        `"${model.title}" is currently Private.\n\nAnyone you share this link with will see "3D Model is Private" and cannot view it.\n\nWould you like to make it Public now before copying the share link?`
+      );
+      if (confirmPublic) {
+        await handleToggleVisibility(model);
+      }
+    }
+
     const origin = typeof window !== "undefined" ? window.location.origin : "";
-    const url = `${origin}/share/${slug}`;
+    const url = `${origin}/share/${model.slug}`;
     navigator.clipboard.writeText(url);
-    setCopiedSlug(slug);
+    setCopiedSlug(model.slug);
     setTimeout(() => setCopiedSlug(null), 2500);
   };
 
@@ -485,16 +494,38 @@ export default function AdminPage() {
                   <div>
                     {/* Top row */}
                     <div className="flex items-start justify-between gap-2 mb-3">
-                      <span
-                        className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded-md font-bold tracking-wider ${
-                          model.format === "3mf"
-                            ? "bg-purple-500/20 text-purple-300 border border-purple-500/40"
-                            : "bg-sky-500/20 text-sky-300 border border-sky-500/40"
-                        }`}
-                      >
-                        {model.format.toUpperCase()}
-                        {model.colorInfo?.hasColors ? " (Color)" : ""}
-                      </span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span
+                          className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded-md font-bold tracking-wider ${
+                            model.format === "3mf"
+                              ? "bg-purple-500/20 text-purple-300 border border-purple-500/40"
+                              : "bg-sky-500/20 text-sky-300 border border-sky-500/40"
+                          }`}
+                        >
+                          {model.format.toUpperCase()}
+                          {model.colorInfo?.hasColors ? " (Color)" : ""}
+                        </span>
+
+                        <span
+                          className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded-md font-bold tracking-wider flex items-center gap-1 ${
+                            model.isPublic
+                              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
+                              : "bg-amber-500/10 text-amber-400 border border-amber-500/30"
+                          }`}
+                        >
+                          {model.isPublic ? (
+                            <>
+                              <Globe className="w-3 h-3 text-emerald-400" />
+                              <span>Public</span>
+                            </>
+                          ) : (
+                            <>
+                              <Lock className="w-3 h-3 text-amber-400" />
+                              <span>Private</span>
+                            </>
+                          )}
+                        </span>
+                      </div>
 
                       <div className="flex items-center gap-1.5 text-xs text-slate-400 font-mono">
                         <Eye className="w-3.5 h-3.5 text-slate-500" />
@@ -538,7 +569,7 @@ export default function AdminPage() {
                   <div className="mt-5 pt-4 border-t border-slate-800/80 flex items-center justify-between gap-2">
                     {/* Share Link Copy */}
                     <button
-                      onClick={() => copyShareLink(model.slug)}
+                      onClick={() => copyShareLink(model)}
                       className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-all ${
                         copiedSlug === model.slug
                           ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
@@ -574,9 +605,13 @@ export default function AdminPage() {
                       className={`p-2 rounded-lg transition-colors ${
                         model.isPublic
                           ? "bg-slate-800 hover:bg-slate-700 text-slate-300"
-                          : "bg-amber-500/10 text-amber-400 border border-amber-500/30"
+                          : "bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40"
                       }`}
-                      title={model.isPublic ? "Public Model" : "Private Model"}
+                      title={
+                        model.isPublic
+                          ? "Model is Public. Click to Make Private"
+                          : "Model is Private. Click to Make Public"
+                      }
                     >
                       {model.isPublic ? (
                         <Globe className="w-4 h-4 text-emerald-400" />
