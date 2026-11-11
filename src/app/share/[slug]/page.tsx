@@ -13,6 +13,7 @@ import {
   Calendar,
   AlertCircle,
   ExternalLink,
+  Lock,
 } from "lucide-react";
 import { ThreeViewer } from "@/components/viewer/ThreeViewer";
 
@@ -39,6 +40,8 @@ export default function SharePage() {
   const [model, setModel] = useState<ModelData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isPrivate, setIsPrivate] = useState(false);
+  const [isNotFound, setIsNotFound] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [showEmbedModal, setShowEmbedModal] = useState(false);
   const [copiedEmbed, setCopiedEmbed] = useState(false);
@@ -49,9 +52,19 @@ export default function SharePage() {
     fetch(`/api/models/${slug}`)
       .then((res) => {
         if (!res.ok) {
-          throw new Error(
-            res.status === 404 ? "3D Model not found" : "Failed to load model"
-          );
+          if (res.status === 403) {
+            setIsPrivate(true);
+            throw new Error(
+              "This 3D model is currently set to Private by the owner. Make it public in the Admin dashboard to share."
+            );
+          }
+          if (res.status === 404) {
+            setIsNotFound(true);
+            throw new Error(
+              "3D model not found. The model may have been deleted or the link is incorrect."
+            );
+          }
+          throw new Error("Failed to load model details from server.");
         }
         return res.json();
       })
@@ -92,19 +105,44 @@ export default function SharePage() {
   if (error || !model) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-200 p-6 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 mb-4">
-          <AlertCircle className="w-8 h-8" />
-        </div>
-        <h1 className="text-2xl font-bold text-white mb-2">3D Model Unavailable</h1>
-        <p className="text-sm text-slate-400 max-w-md mb-6">
+        {isPrivate ? (
+          <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mb-4 shadow-lg shadow-amber-500/10">
+            <Lock className="w-8 h-8" />
+          </div>
+        ) : (
+          <div className="w-16 h-16 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 mb-4 shadow-lg shadow-red-500/10">
+            <AlertCircle className="w-8 h-8" />
+          </div>
+        )}
+
+        <h1 className="text-2xl font-bold text-white mb-2">
+          {isPrivate
+            ? "3D Model is Private"
+            : isNotFound
+            ? "3D Model Not Found"
+            : "3D Model Unavailable"}
+        </h1>
+
+        <p className="text-sm text-slate-400 max-w-md mb-6 leading-relaxed">
           {error || "This model may have been deleted or set to private by the owner."}
         </p>
-        <Link
-          href="/"
-          className="px-5 py-2.5 bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-xl text-sm font-medium text-white transition-colors"
-        >
-          Return to 3D Share
-        </Link>
+
+        <div className="flex items-center gap-3">
+          <Link
+            href="/"
+            className="px-5 py-2.5 bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-xl text-sm font-medium text-white transition-colors"
+          >
+            Return to 3D Share
+          </Link>
+          {isPrivate && (
+            <Link
+              href="/login"
+              className="px-5 py-2.5 bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold rounded-xl text-sm transition-colors"
+            >
+              Sign In as Owner
+            </Link>
+          )}
+        </div>
       </div>
     );
   }
