@@ -33,7 +33,8 @@ function calculateMeshVolume(geometry: THREE.BufferGeometry): number {
 
   if (geometry.index) {
     const indices = geometry.index.array;
-    for (let i = 0; i < indices.length; i += 3) {
+    const indexCount = geometry.index.count;
+    for (let i = 0; i < indexCount; i += 3) {
       const i1 = indices[i] * 3;
       const i2 = indices[i + 1] * 3;
       const i3 = indices[i + 2] * 3;
@@ -45,7 +46,8 @@ function calculateMeshVolume(geometry: THREE.BufferGeometry): number {
       volume += (x1 * (y2 * z3 - z2 * y3) - y1 * (x2 * z3 - z2 * x3) + z1 * (x2 * y3 - y2 * x3)) / 6.0;
     }
   } else {
-    for (let i = 0; i < array.length; i += 9) {
+    const end = pos.count * 3;
+    for (let i = 0; i < end; i += 9) {
       const x1 = array[i], y1 = array[i + 1], z1 = array[i + 2];
       const x2 = array[i + 3], y2 = array[i + 4], z2 = array[i + 5];
       const x3 = array[i + 6], y3 = array[i + 7], z3 = array[i + 8];
