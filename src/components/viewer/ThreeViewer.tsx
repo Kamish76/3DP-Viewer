@@ -37,8 +37,11 @@ export function ThreeViewer({
   const edgesGroupRef = useRef<THREE.Group | null>(null);
   const gridHelperRef = useRef<THREE.GridHelper | null>(null);
   const modelRadiusRef = useRef<number>(50);
+  const modelColorRef = useRef<string>("#38bdf8");
+  const shadingModeRef = useRef<ShadingMode>("shaded");
 
   const [loading, setLoading] = useState(true);
+  const [loadingMessage, setLoadingMessage] = useState<string>("Initializing 3D viewport...");
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<ModelStats | null>(null);
   const [shadingMode, setShadingMode] = useState<ShadingMode>("shaded");
@@ -226,7 +229,7 @@ export function ThreeViewer({
         if (format === "3mf") {
           loaded = load3MFModel(buffer);
         } else {
-          loaded = loadSTLModel(buffer, new THREE.Color(modelColor).getHex());
+          loaded = loadSTLModel(buffer, new THREE.Color(modelColorRef.current).getHex());
         }
 
         const model = loaded.root;
@@ -237,8 +240,8 @@ export function ThreeViewer({
           onStatsLoaded(loaded.stats);
         }
 
-        // Build edge highlights for "edges" shading mode
-        if (edgesGroupRef.current) {
+        // Lazily build edge highlights only if user is already in "edges" mode
+        if (edgesGroupRef.current && shadingModeRef.current === "edges") {
           model.traverse((child) => {
             if (child instanceof THREE.Mesh && child.geometry) {
               const edgesGeom = new THREE.EdgesGeometry(child.geometry, 28);
@@ -253,7 +256,7 @@ export function ThreeViewer({
               edgesGroupRef.current?.add(line);
             }
           });
-          edgesGroupRef.current.visible = shadingMode === "edges";
+          edgesGroupRef.current.visible = true;
         }
 
         // Adjust grid floor sizing to match model
@@ -275,7 +278,7 @@ export function ThreeViewer({
             0x1e293b
           );
           newGrid.position.y = 0;
-          newGrid.visible = showGrid;
+          newGrid.visible = true;
           scene.add(newGrid);
           gridHelperRef.current = newGrid;
         }
@@ -288,7 +291,7 @@ export function ThreeViewer({
         setLoading(false);
       }
     },
-    [format, modelColor, shadingMode, showGrid, onStatsLoaded, frameCameraToModel]
+    [format, onStatsLoaded, frameCameraToModel]
   );
 
   // Fetch or Load from Buffer
@@ -297,33 +300,75 @@ export function ThreeViewer({
     setError(null);
 
     if (fileBuffer) {
-      processBuffer(fileBuffer);
-      return;
+      setLoadingMessage(`Parsing ${format.toUpperCase()} geometry & materials...`);
+      const timer = setTimeout(() => {
+        processBuffer(fileBuffer);
+      }, 30);
+      return () => clearTimeout(timer);
     }
 
     if (fileUrl) {
+      setLoadingMessage("Downloading 3D asset from server...");
+      let active = true;
+
       fetch(fileUrl)
         .then((res) => {
-          if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to download model`);
+          if (!res.ok) {
+            if (res.status === 403) {
+              throw new Error("Private model: Access denied");
+            }
+            throw new Error(`HTTP ${res.status}: Failed to download model`);
+          }
+          if (active) {
+            setLoadingMessage(`Parsing ${format.toUpperCase()} geometry & materials...`);
+          }
           return res.arrayBuffer();
         })
         .then((buf) => {
-          processBuffer(buf);
+          if (active) {
+            setTimeout(() => {
+              if (active) processBuffer(buf);
+            }, 30);
+          }
         })
         .catch((err: unknown) => {
-          console.error("Failed to load file:", err);
-          setError(err instanceof Error ? err.message : "Network error");
-          setLoading(false);
+          if (active) {
+            console.error("Failed to load file:", err);
+            setError(err instanceof Error ? err.message : "Network error");
+            setLoading(false);
+          }
         });
+
+      return () => {
+        active = false;
+      };
     }
-  }, [fileUrl, fileBuffer, processBuffer]);
+  }, [fileUrl, fileBuffer, format, processBuffer]);
 
   // Handle Shading Mode Change
   const handleChangeShadingMode = (mode: ShadingMode) => {
     setShadingMode(mode);
+    shadingModeRef.current = mode;
     if (!currentModelRef.current) return;
 
     if (edgesGroupRef.current) {
+      // Lazily build edges geometry on demand if switching to 'edges'
+      if (mode === "edges" && edgesGroupRef.current.children.length === 0) {
+        currentModelRef.current.traverse((child) => {
+          if (child instanceof THREE.Mesh && child.geometry) {
+            const edgesGeom = new THREE.EdgesGeometry(child.geometry, 28);
+            const edgesMat = new THREE.LineBasicMaterial({
+              color: 0x0f172a,
+              linewidth: 1,
+            });
+            const line = new THREE.LineSegments(edgesGeom, edgesMat);
+            line.position.copy(child.position);
+            line.rotation.copy(child.rotation);
+            line.scale.copy(child.scale);
+            edgesGroupRef.current?.add(line);
+          }
+        });
+      }
       edgesGroupRef.current.visible = mode === "edges";
     }
 
@@ -352,6 +397,7 @@ export function ThreeViewer({
   // Handle Custom Model Color Change
   const handleChangeModelColor = (hex: string) => {
     setModelColor(hex);
+    modelColorRef.current = hex;
     if (!currentModelRef.current) return;
 
     // If format is STL or user overrides single color
@@ -418,7 +464,7 @@ export function ThreeViewer({
         <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-sm text-white">
           <div className="w-12 h-12 border-4 border-sky-400 border-t-transparent rounded-full animate-spin mb-4" />
           <p className="font-mono text-sm tracking-wide text-neutral-300">
-            Parsing {format.toUpperCase()} geometry & materials...
+            {loadingMessage}
           </p>
         </div>
       )}
