@@ -1,0 +1,22 @@
+
+# Graphify & ICM Ephemeral Artifacts (Mode A - Solo)
+graphify-out/manifest.json
+graphify-out/cache/
+graphify-out/cost.json
+graphify-out/graph.html
+graphify-out/.*
+.icm/*/output/
+
+# Next.js
+.next/
+out/
+build/
+node_modules/
+
+# Environment files
+.env*.local
+.env
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
