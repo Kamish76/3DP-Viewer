@@ -185,14 +185,12 @@ export default function AdminPage() {
   };
 
   // Copy share URL with privacy check
-  const copyShareLink = async (model: ModelRecord) => {
+  const copyShareLink = (model: ModelRecord) => {
+    let shouldPublish = false;
     if (!model.isPublic) {
-      const confirmPublic = confirm(
+      shouldPublish = confirm(
         `"${model.title}" is currently Private.\n\nAnyone you share this link with will see "3D Model is Private" and cannot view it.\n\nWould you like to make it Public now before copying the share link?`
       );
-      if (confirmPublic) {
-        await handleToggleVisibility(model);
-      }
     }
 
     const origin = typeof window !== "undefined" ? window.location.origin : "";
@@ -200,6 +198,10 @@ export default function AdminPage() {
     navigator.clipboard.writeText(url);
     setCopiedSlug(model.slug);
     setTimeout(() => setCopiedSlug(null), 2500);
+
+    if (shouldPublish) {
+      handleToggleVisibility(model);
+    }
   };
 
   // Toggle Public/Private
