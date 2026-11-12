@@ -4,6 +4,7 @@ import React, { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Box, Lock, ArrowRight, ShieldCheck, AlertCircle } from "lucide-react";
 import Link from "next/link";
+import { authClient } from "@/lib/auth/client";
 
 function GoogleIcon({ className = "w-5 h-5" }: { className?: string }) {
   return (
@@ -91,9 +92,17 @@ function LoginForm() {
     }
   };
 
-  const handleGoogleLogin = () => {
+  const handleGoogleLogin = async () => {
     setGoogleLoading(true);
-    window.location.href = "/api/auth/google";
+    try {
+      await authClient.signIn.social({
+        provider: "google",
+        callbackURL: "/admin",
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to connect to Google");
+      setGoogleLoading(false);
+    }
   };
 
   return (
