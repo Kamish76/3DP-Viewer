@@ -50,6 +50,12 @@ export default function AdminPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [models, setModels] = useState<ModelRecord[]>([]);
+  const [currentUser, setCurrentUser] = useState<{
+    username: string;
+    role: string;
+    email?: string;
+    avatarUrl?: string;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
 
@@ -83,6 +89,12 @@ export default function AdminPage() {
 
   useEffect(() => {
     fetchModels();
+    fetch("/api/auth/me")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.user) setCurrentUser(data.user);
+      })
+      .catch(() => {});
   }, []);
 
   // Handle Logout
@@ -259,6 +271,23 @@ export default function AdminPage() {
           </div>
 
           <div className="flex items-center gap-3">
+            {currentUser && (
+              <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700/60 text-xs text-slate-300">
+                {currentUser.avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={currentUser.avatarUrl}
+                    alt={currentUser.username}
+                    className="w-4 h-4 rounded-full object-cover"
+                  />
+                ) : (
+                  <div className="w-2 h-2 rounded-full bg-emerald-400" />
+                )}
+                <span className="max-w-[150px] truncate font-mono text-[11px]">
+                  {currentUser.email || currentUser.username}
+                </span>
+              </div>
+            )}
             <Link
               href="/"
               className="text-xs font-medium text-slate-400 hover:text-white px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors"
@@ -267,7 +296,7 @@ export default function AdminPage() {
             </Link>
             <button
               onClick={handleLogout}
-              className="flex items-center gap-1.5 text-xs font-medium text-rose-400 hover:text-rose-300 px-3 py-1.5 rounded-lg hover:bg-rose-500/10 transition-colors border border-rose-500/20"
+              className="flex items-center gap-1.5 text-xs font-medium text-rose-400 hover:text-rose-300 px-3 py-1.5 rounded-lg hover:bg-rose-500/10 transition-colors border border-rose-500/20 cursor-pointer"
             >
               <LogOut className="w-3.5 h-3.5" />
               Sign Out
