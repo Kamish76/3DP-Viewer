@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { ThreeViewer } from "@/components/viewer/ThreeViewer";
 import { ModelStats } from "@/components/viewer/loaders";
+import { authClient } from "@/lib/auth/client";
 
 interface ModelRecord {
   id: string;
@@ -99,6 +100,11 @@ export default function AdminPage() {
 
   // Handle Logout
   const handleLogout = async () => {
+    try {
+      await authClient.signOut();
+    } catch (err) {
+      console.warn("Neon signOut error:", err);
+    }
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
   };
