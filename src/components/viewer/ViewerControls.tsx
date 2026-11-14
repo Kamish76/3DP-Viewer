@@ -5,6 +5,7 @@ import {
   RotateCcw,
   RotateCw,
   Maximize2,
+  Minimize2,
   Camera,
   Grid,
   Palette,
@@ -12,6 +13,7 @@ import {
   Box,
   Play,
   Pause,
+  X,
 } from "lucide-react";
 import { FilamentSlotInfo, ModelStats } from "./loaders";
 
@@ -90,6 +92,7 @@ interface ViewerControlsProps {
   onTakeScreenshot: () => void;
   onToggleFullscreen: () => void;
   isFullscreen: boolean;
+  compact?: boolean;
   activePlate?: number | null;
   onSelectPlate?: (plateIndex: number | null) => void;
 }
@@ -124,26 +127,47 @@ export function ViewerControls({
   onTakeScreenshot,
   onToggleFullscreen,
   isFullscreen,
+  compact = false,
   activePlate = null,
   onSelectPlate,
 }: ViewerControlsProps) {
-  const [showStats, setShowStats] = useState(true);
+  const [showStats, setShowStats] = useState(!compact);
   const [showColorPicker, setShowColorPicker] = useState(false);
 
   const canResetProfileColors =
     isColorOverridden && (format === "3mf" || stats?.hasColors);
 
+  const toolbarBtnClass = compact
+    ? "px-1.5 py-1 rounded-md text-[10px] font-mono font-medium hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
+    : "px-2 py-1 rounded-md text-xs font-mono font-medium hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors";
+  const shadingBtnClass = (active: boolean) =>
+    `${compact ? "px-1.5 py-1 text-[10px]" : "px-2 py-1 text-xs"} rounded-md font-medium transition-colors ${
+      active
+        ? "bg-sky-500/20 text-sky-400 font-semibold"
+        : "text-neutral-400 hover:text-white hover:bg-neutral-800"
+    }`;
+
   return (
     <>
       {/* Top Left: Title & Format Badge */}
       {title && (
-        <div className="absolute top-4 left-4 z-20 flex items-center gap-2.5 bg-neutral-900/80 backdrop-blur-md border border-neutral-700/60 rounded-xl px-4 py-2 text-white shadow-xl pointer-events-auto">
-          <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-          <h1 className="font-semibold text-sm tracking-wide max-w-[200px] sm:max-w-[340px] truncate">
+        <div
+          className={`absolute z-20 flex items-center bg-neutral-900/80 backdrop-blur-md border border-neutral-700/60 rounded-xl text-white shadow-xl pointer-events-auto ${
+            compact
+              ? "top-2.5 left-2.5 gap-2 px-3 py-1.5 max-w-[calc(100%-8.5rem)]"
+              : "top-4 left-4 gap-2.5 px-4 py-2 max-w-[calc(100%-13rem)]"
+          }`}
+        >
+          <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+          <h1
+            className={`font-semibold tracking-wide truncate ${
+              compact ? "text-xs max-w-[140px] sm:max-w-[200px]" : "text-sm max-w-[200px] sm:max-w-[340px]"
+            }`}
+          >
             {title}
           </h1>
           <span
-            className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded-md font-bold tracking-wider ${
+            className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded-md font-bold tracking-wider shrink-0 ${
               format === "3mf"
                 ? "bg-purple-500/20 text-purple-300 border border-purple-500/40"
                 : "bg-sky-500/20 text-sky-300 border border-sky-500/40"
@@ -158,13 +182,21 @@ export function ViewerControls({
       {/* Top Left (below title): Multi-Plate Selector */}
       {stats?.plates && stats.plates.length > 1 && onSelectPlate && (
         <div
-          className={`absolute ${
-            title ? "top-16" : "top-4"
-          } left-4 z-20 flex flex-wrap items-center gap-1 bg-neutral-900/80 backdrop-blur-md border border-neutral-700/60 rounded-xl p-1 text-xs shadow-xl pointer-events-auto max-w-[calc(100vw-8rem)]`}
+          className={`absolute z-20 flex flex-wrap items-center gap-1 bg-neutral-900/80 backdrop-blur-md border border-neutral-700/60 rounded-xl p-1 text-xs shadow-xl pointer-events-auto max-w-[calc(100%-1.5rem)] ${
+            compact
+              ? title
+                ? "top-12 left-2.5"
+                : "top-2.5 left-2.5"
+              : title
+              ? "top-16 left-4"
+              : "top-4 left-4"
+          }`}
         >
           <button
             onClick={() => onSelectPlate(null)}
-            className={`px-2.5 py-1 rounded-lg font-mono text-[11px] font-medium transition-colors cursor-pointer ${
+            className={`rounded-lg font-mono font-medium transition-colors cursor-pointer ${
+              compact ? "px-2 py-0.5 text-[10px]" : "px-2.5 py-1 text-[11px]"
+            } ${
               activePlate === null
                 ? "bg-sky-500/20 text-sky-300 border border-sky-500/40"
                 : "text-neutral-300 hover:bg-neutral-800 hover:text-white border border-transparent"
@@ -181,7 +213,9 @@ export function ViewerControls({
                   ? `${plate.name} (${plate.bbox.width} × ${plate.bbox.depth} × ${plate.bbox.height} mm)`
                   : `Plate ${plate.index} (${plate.bbox.width} × ${plate.bbox.depth} × ${plate.bbox.height} mm)`
               }
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-mono text-[11px] font-medium transition-colors cursor-pointer ${
+              className={`flex items-center gap-1.5 rounded-lg font-mono font-medium transition-colors cursor-pointer ${
+                compact ? "px-2 py-0.5 text-[10px]" : "px-2.5 py-1 text-[11px]"
+              } ${
                 activePlate === plate.index
                   ? "bg-purple-500/20 text-purple-300 border border-purple-500/40"
                   : "text-neutral-300 hover:bg-neutral-800 hover:text-white border border-transparent"
@@ -205,11 +239,15 @@ export function ViewerControls({
       )}
 
       {/* Top Right: Viewport Quick Actions */}
-      <div className="absolute top-4 right-4 z-20 flex items-center gap-1.5 bg-neutral-900/80 backdrop-blur-md border border-neutral-700/60 rounded-xl p-1.5 text-neutral-300 shadow-xl pointer-events-auto">
+      <div
+        className={`absolute z-20 flex items-center bg-neutral-900/80 backdrop-blur-md border border-neutral-700/60 rounded-xl text-neutral-300 shadow-xl pointer-events-auto ${
+          compact ? "top-2.5 right-2.5 gap-1 p-1" : "top-4 right-4 gap-1.5 p-1.5"
+        }`}
+      >
         <button
           onClick={onToggleAutoRotate}
           title={autoRotate ? "Pause Turntable" : "Start Turntable"}
-          className={`p-2 rounded-lg transition-colors ${
+          className={`${compact ? "p-1.5" : "p-2"} rounded-lg transition-colors ${
             autoRotate ? "bg-sky-500/20 text-sky-400" : "hover:bg-neutral-800 text-neutral-300"
           }`}
         >
@@ -219,7 +257,7 @@ export function ViewerControls({
         <button
           onClick={onToggleGrid}
           title={showGrid ? "Hide Grid Floor" : "Show Grid Floor"}
-          className={`p-2 rounded-lg transition-colors ${
+          className={`${compact ? "p-1.5" : "p-2"} rounded-lg transition-colors ${
             showGrid ? "bg-sky-500/20 text-sky-400" : "hover:bg-neutral-800 text-neutral-300"
           }`}
         >
@@ -229,7 +267,7 @@ export function ViewerControls({
         <button
           onClick={onTakeScreenshot}
           title="Save High-Res PNG Screenshot"
-          className="p-2 rounded-lg hover:bg-neutral-800 transition-colors text-neutral-300 hover:text-white"
+          className={`${compact ? "p-1.5" : "p-2"} rounded-lg hover:bg-neutral-800 transition-colors text-neutral-300 hover:text-white`}
         >
           <Camera className="w-4 h-4" />
         </button>
@@ -237,16 +275,20 @@ export function ViewerControls({
         <button
           onClick={onToggleFullscreen}
           title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
-          className="p-2 rounded-lg hover:bg-neutral-800 transition-colors text-neutral-300 hover:text-white"
+          className={`${compact ? "p-1.5" : "p-2"} rounded-lg hover:bg-neutral-800 transition-colors text-neutral-300 hover:text-white`}
         >
-          <Maximize2 className="w-4 h-4" />
+          {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
         </button>
       </div>
 
       {/* Bottom Floating Toolbar: Camera, Orientation, Shading, Colors */}
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 pointer-events-auto max-w-[95vw]">
+      <div
+        className={`absolute left-1/2 -translate-x-1/2 z-20 pointer-events-auto ${
+          compact ? "bottom-2.5 max-w-[calc(100%-1rem)]" : "bottom-6 max-w-[calc(100%-1.5rem)]"
+        }`}
+      >
         {showColorPicker && (
-          <div className="mb-2 mx-auto w-fit max-w-[90vw] bg-neutral-900/95 backdrop-blur-md border border-neutral-700 rounded-xl p-3 shadow-2xl space-y-2.5 text-xs text-neutral-200">
+          <div className="mb-2 mx-auto w-fit max-w-full bg-neutral-900/95 backdrop-blur-md border border-neutral-700 rounded-xl p-3 shadow-2xl space-y-2.5 text-xs text-neutral-200">
             {stats?.filaments && stats.filaments.length > 0 && (
               <div className="space-y-1.5 border-b border-neutral-800 pb-2">
                 <div className="flex items-center justify-between gap-4 text-[10px] font-mono uppercase tracking-wider text-neutral-400">
@@ -273,7 +315,7 @@ export function ViewerControls({
               </div>
             )}
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               {PRESET_COLORS.map((c) => (
                 <button
                   key={c}
@@ -307,37 +349,45 @@ export function ViewerControls({
           </div>
         )}
 
-        <div className="flex items-center gap-2 bg-neutral-900/85 backdrop-blur-md border border-neutral-700/70 rounded-2xl p-2 text-white shadow-2xl overflow-x-auto">
+        <div
+          className={`flex items-center bg-neutral-900/85 backdrop-blur-md border border-neutral-700/70 text-white shadow-2xl overflow-x-auto ${
+            compact ? "gap-1 rounded-xl p-1.5" : "gap-2 rounded-2xl p-2"
+          }`}
+        >
           {/* Camera Views */}
-          <div className="flex items-center gap-1 border-r border-neutral-800 pr-2 shrink-0">
+          <div
+            className={`flex items-center border-r border-neutral-800 shrink-0 ${
+              compact ? "gap-0.5 pr-1.5" : "gap-1 pr-2"
+            }`}
+          >
             <button
               onClick={onResetCamera}
               title="Reset Camera Framing"
-              className="p-2 rounded-lg hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
+              className={`${compact ? "p-1.5" : "p-2"} rounded-lg hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors`}
             >
-              <RotateCcw className="w-4 h-4" />
+              <RotateCcw className={compact ? "w-3.5 h-3.5" : "w-4 h-4"} />
             </button>
             <button
               onClick={() => onSetCameraView("iso")}
-              className="px-2 py-1 rounded-md text-xs font-mono font-medium hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
+              className={toolbarBtnClass}
             >
               ISO
             </button>
             <button
               onClick={() => onSetCameraView("top")}
-              className="px-2 py-1 rounded-md text-xs font-mono font-medium hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
+              className={toolbarBtnClass}
             >
               TOP
             </button>
             <button
               onClick={() => onSetCameraView("front")}
-              className="px-2 py-1 rounded-md text-xs font-mono font-medium hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
+              className={toolbarBtnClass}
             >
               FRONT
             </button>
             <button
               onClick={() => onSetCameraView("right")}
-              className="px-2 py-1 rounded-md text-xs font-mono font-medium hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
+              className={toolbarBtnClass}
             >
               SIDE
             </button>
@@ -345,72 +395,62 @@ export function ViewerControls({
 
           {/* Model Orientation (90° step rotation) */}
           <div
-            className="flex items-center gap-1 border-r border-neutral-800 pr-2 shrink-0"
+            className={`flex items-center border-r border-neutral-800 shrink-0 ${
+              compact ? "gap-0.5 pr-1.5" : "gap-1 pr-2"
+            }`}
             title="Rotate Model Orientation 90°"
           >
             <RotateCw className="w-3.5 h-3.5 text-neutral-500 mx-0.5" />
             <button
               onClick={() => onRotateModel("x")}
               title="Rotate Model +90° around X axis"
-              className="px-1.5 py-1 rounded-md text-[11px] font-mono font-medium hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
+              className={toolbarBtnClass}
             >
               X
             </button>
             <button
               onClick={() => onRotateModel("y")}
               title="Rotate Model +90° around Vertical Y axis"
-              className="px-1.5 py-1 rounded-md text-[11px] font-mono font-medium hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
+              className={toolbarBtnClass}
             >
               Y
             </button>
             <button
               onClick={() => onRotateModel("z")}
               title="Rotate Model +90° around Z axis"
-              className="px-1.5 py-1 rounded-md text-[11px] font-mono font-medium hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
+              className={toolbarBtnClass}
             >
               Z
             </button>
           </div>
 
           {/* Shading Modes */}
-          <div className="flex items-center gap-1 border-r border-neutral-800 pr-2 shrink-0">
+          <div
+            className={`flex items-center border-r border-neutral-800 shrink-0 ${
+              compact ? "gap-0.5 pr-1.5" : "gap-1 pr-2"
+            }`}
+          >
             <button
               onClick={() => onChangeShadingMode("shaded")}
-              className={`px-2 py-1 rounded-md text-xs font-medium transition-colors ${
-                shadingMode === "shaded"
-                  ? "bg-sky-500/20 text-sky-400 font-semibold"
-                  : "text-neutral-400 hover:text-white hover:bg-neutral-800"
-              }`}
+              className={shadingBtnClass(shadingMode === "shaded")}
             >
               Solid
             </button>
             <button
               onClick={() => onChangeShadingMode("edges")}
-              className={`px-2 py-1 rounded-md text-xs font-medium transition-colors ${
-                shadingMode === "edges"
-                  ? "bg-sky-500/20 text-sky-400 font-semibold"
-                  : "text-neutral-400 hover:text-white hover:bg-neutral-800"
-              }`}
+              className={shadingBtnClass(shadingMode === "edges")}
             >
               Edges
             </button>
             <button
               onClick={() => onChangeShadingMode("wireframe")}
-              className={`px-2 py-1 rounded-md text-xs font-medium transition-colors ${
-                shadingMode === "wireframe"
-                  ? "bg-sky-500/20 text-sky-400 font-semibold"
-                  : "text-neutral-400 hover:text-white hover:bg-neutral-800"
-              }`}
+              className={shadingBtnClass(shadingMode === "wireframe")}
             >
               Wire
             </button>
             <button
               onClick={() => onChangeShadingMode("transparent")}
-              className={`px-2 py-1 rounded-md text-xs font-medium transition-colors ${
-                shadingMode === "transparent"
-                  ? "bg-sky-500/20 text-sky-400 font-semibold"
-                  : "text-neutral-400 hover:text-white hover:bg-neutral-800"
-              }`}
+              className={shadingBtnClass(shadingMode === "transparent")}
             >
               X-Ray
             </button>
@@ -420,13 +460,13 @@ export function ViewerControls({
           <button
             onClick={() => setShowColorPicker(!showColorPicker)}
             title="Material Color & Profile Filaments"
-            className={`p-2 rounded-lg transition-colors flex items-center gap-1.5 shrink-0 ${
+            className={`${compact ? "p-1.5 gap-1" : "p-2 gap-1.5"} rounded-lg transition-colors flex items-center shrink-0 ${
               showColorPicker
                 ? "bg-sky-500/20 text-sky-300"
                 : "hover:bg-neutral-800 text-neutral-300 hover:text-white"
             }`}
           >
-            <Palette className="w-4 h-4" />
+            <Palette className={compact ? "w-3.5 h-3.5" : "w-4 h-4"} />
             <span
               className="w-3 h-3 rounded-full border border-white/40"
               style={{ backgroundColor: modelColor }}
@@ -436,24 +476,39 @@ export function ViewerControls({
           {/* Toggle Stats Panel */}
           <button
             onClick={() => setShowStats(!showStats)}
-            className={`p-2 rounded-lg transition-colors shrink-0 ${
+            className={`${compact ? "p-1.5" : "p-2"} rounded-lg transition-colors shrink-0 ${
               showStats ? "bg-sky-500/20 text-sky-400" : "hover:bg-neutral-800 text-neutral-300"
             }`}
             title="Toggle Dimensions & Telemetry"
           >
-            <Info className="w-4 h-4" />
+            <Info className={compact ? "w-3.5 h-3.5" : "w-4 h-4"} />
           </button>
         </div>
       </div>
 
       {/* Bottom Right: Dimensional Telemetry HUD */}
       {showStats && stats && (
-        <div className="absolute bottom-6 right-4 z-20 bg-neutral-900/85 backdrop-blur-md border border-neutral-700/60 rounded-xl p-3 text-xs text-neutral-300 shadow-xl w-64 pointer-events-auto">
+        <div
+          className={`absolute z-30 bg-neutral-900/90 backdrop-blur-md border border-neutral-700/60 rounded-xl p-3 text-xs text-neutral-300 shadow-xl pointer-events-auto overflow-y-auto ${
+            compact
+              ? "bottom-16 right-2.5 w-60 max-h-[calc(100%-7.5rem)]"
+              : "bottom-20 xl:bottom-6 right-4 w-64 max-h-[calc(100%-9rem)]"
+          }`}
+        >
           <div className="flex items-center justify-between font-mono text-[11px] text-neutral-400 mb-2 border-b border-neutral-800 pb-1">
             <span className="flex items-center gap-1.5 font-bold text-white uppercase tracking-wider">
               <Box className="w-3.5 h-3.5 text-sky-400" /> Metrology HUD
             </span>
-            <span>MM</span>
+            <div className="flex items-center gap-1.5">
+              <span>MM</span>
+              <button
+                onClick={() => setShowStats(false)}
+                title="Close Telemetry HUD"
+                className="p-0.5 rounded hover:bg-neutral-800 text-neutral-400 hover:text-white transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
           <div className="space-y-1 font-mono text-[11px]">
