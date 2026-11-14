@@ -13,9 +13,62 @@ import {
   Play,
   Pause,
 } from "lucide-react";
-import { ModelStats } from "./loaders";
+import { FilamentSlotInfo, ModelStats } from "./loaders";
 
 export type ShadingMode = "shaded" | "wireframe" | "edges" | "transparent";
+
+function FilamentPillList({
+  filaments,
+  onSelect,
+}: {
+  filaments: FilamentSlotInfo[];
+  onSelect?: (color: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {filaments.map((f) => {
+        const inactive = f.active === false;
+        const content = (
+          <>
+            <span
+              className={`${onSelect ? "w-3 h-3" : "w-2.5 h-2.5"} rounded-full border border-white/25 shrink-0`}
+              style={{ backgroundColor: f.color }}
+            />
+            <span>#{f.slot}</span>
+            {f.type && <span className="text-neutral-400">{f.type}</span>}
+          </>
+        );
+        const title = `Slot #${f.slot}${f.type ? ` (${f.type})` : ""}: ${f.color}`;
+        return onSelect ? (
+          <button
+            key={f.slot}
+            onClick={() => onSelect(f.color)}
+            title={title}
+            className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] font-mono transition-colors ${
+              inactive
+                ? "border-neutral-800 bg-neutral-950/60 text-neutral-500 hover:text-neutral-300"
+                : "border-neutral-700 bg-neutral-800/80 text-neutral-200 hover:border-neutral-500"
+            }`}
+          >
+            {content}
+          </button>
+        ) : (
+          <span
+            key={f.slot}
+            title={title}
+            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] ${
+              inactive
+                ? "border-neutral-800/70 bg-neutral-950/50 text-neutral-500 opacity-65"
+                : "border-neutral-700 bg-neutral-800/80 text-neutral-200"
+            }`}
+          >
+            {content}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
 
 interface ViewerControlsProps {
   stats: ModelStats | null;
@@ -157,30 +210,13 @@ export function ViewerControls({
                     </button>
                   )}
                 </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {stats.filaments.map((f) => (
-                    <button
-                      key={f.slot}
-                      onClick={() => {
-                        onChangeModelColor(f.color);
-                        setShowColorPicker(false);
-                      }}
-                      title={`Slot #${f.slot}${f.type ? ` (${f.type})` : ""}: ${f.color}`}
-                      className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] font-mono transition-colors ${
-                        f.active === false
-                          ? "border-neutral-800 bg-neutral-950/60 text-neutral-500 hover:text-neutral-300"
-                          : "border-neutral-700 bg-neutral-800/80 text-neutral-200 hover:border-neutral-500"
-                      }`}
-                    >
-                      <span
-                        className="w-3 h-3 rounded-full border border-white/25 shrink-0"
-                        style={{ backgroundColor: f.color }}
-                      />
-                      <span>#{f.slot}</span>
-                      {f.type && <span className="text-neutral-400">{f.type}</span>}
-                    </button>
-                  ))}
-                </div>
+                <FilamentPillList
+                  filaments={stats.filaments}
+                  onSelect={(color) => {
+                    onChangeModelColor(color);
+                    setShowColorPicker(false);
+                  }}
+                />
               </div>
             )}
 
@@ -401,26 +437,7 @@ export function ViewerControls({
             {stats.filaments && stats.filaments.length > 0 ? (
               <div className="pt-2 border-t border-neutral-800/80">
                 <span className="text-neutral-500 block mb-1.5">Profile Filaments:</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {stats.filaments.map((f) => (
-                    <span
-                      key={f.slot}
-                      title={`Slot #${f.slot}${f.type ? ` ${f.type}` : ""}: ${f.color}`}
-                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] ${
-                        f.active === false
-                          ? "border-neutral-800/70 bg-neutral-950/50 text-neutral-500 opacity-65"
-                          : "border-neutral-700 bg-neutral-800/80 text-neutral-200"
-                      }`}
-                    >
-                      <span
-                        className="w-2.5 h-2.5 rounded-full border border-white/25"
-                        style={{ backgroundColor: f.color }}
-                      />
-                      <span>#{f.slot}</span>
-                      {f.type && <span className="text-neutral-400">{f.type}</span>}
-                    </span>
-                  ))}
-                </div>
+                <FilamentPillList filaments={stats.filaments} />
               </div>
             ) : (
               stats.colors.length > 0 &&
