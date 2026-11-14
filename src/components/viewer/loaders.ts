@@ -10,6 +10,18 @@ export interface FilamentSlotInfo {
   active?: boolean;
 }
 
+export interface PlateInfo {
+  index: number; // 1-based plater_id
+  name?: string;
+  triangleCount: number;
+  bbox: {
+    width: number;
+    depth: number;
+    height: number;
+  };
+  colors: string[];
+}
+
 export interface ModelStats {
   triangleCount: number;
   vertexCount: number;
@@ -23,6 +35,7 @@ export interface ModelStats {
   hasColors: boolean;
   filaments?: FilamentSlotInfo[];
   partCount?: number;
+  plates?: PlateInfo[];
 }
 
 export interface Loaded3DModel {
@@ -147,12 +160,17 @@ function calculateMeshVolume(geometry: THREE.BufferGeometry): number {
 }
 
 /**
- * Re-centers an object at X=0, Z=0 and grounds its bottom at Y=0.
+ * Re-centers visible meshes at X=0, Z=0 and grounds their bottom at Y=0.
  * Returns updated millimeter bounding dimensions.
  */
 export function recenterAndGroundObject(root: THREE.Object3D): ModelStats["bbox"] {
   root.updateMatrixWorld(true);
-  const box = new THREE.Box3().setFromObject(root);
+  const box = new THREE.Box3();
+  root.traverse((child) => {
+    if (child instanceof THREE.Mesh && child.visible) {
+      box.expandByObject(child);
+    }
+  });
   if (box.isEmpty()) {
     return { width: 0, depth: 0, height: 0 };
   }
@@ -184,6 +202,7 @@ export function extractStatsAndNormalize(
     overrideColors?: string[];
     filaments?: FilamentSlotInfo[];
     partCount?: number;
+    plates?: PlateInfo[];
   }
 ): ModelStats {
   let triangleCount = 0;
@@ -205,7 +224,10 @@ export function extractStatsAndNormalize(
             triangleCount += pos.count / 3;
           }
         }
-        totalVolumeMm3 += calculateMeshVolume(geom);
+        totalVolumeMm3 +=
+          typeof child.userData?.volumeMm3 === "number"
+            ? child.userData.volumeMm3
+            : calculateMeshVolume(geom);
       }
 
       if (!extra?.overrideColors?.length) {
@@ -237,6 +259,7 @@ export function extractStatsAndNormalize(
     hasColors: colors.length > 1 || colors.includes("vertex-colors"),
     filaments: extra?.filaments,
     partCount: extra?.partCount,
+    plates: extra?.plates,
   };
 }
 
@@ -291,6 +314,8 @@ interface PartSetting {
 interface ObjectSetting {
   name?: string;
   extruder?: number;
+  plateIndex?: number;
+  plateName?: string;
   parts: Map<string, PartSetting>;
 }
 
@@ -340,6 +365,18 @@ function parseFilamentProfile(
         : [];
       rawColors.forEach((val, idx) => {
         if (typeof val === "string") {
+          const hex = normalizeHexColor(val);
+          if (hex) colorsBySlot.set(idx + 1, hex);
+        }
+      });
+
+      const rawMultiColors = Array.isArray(json.filament_multi_colour)
+        ? json.filament_multi_colour
+        : typeof json.filament_multi_colour === "string"
+        ? json.filament_multi_colour.split(/[;,]/)
+        : [];
+      rawMultiColors.forEach((val, idx) => {
+        if (typeof val === "string" && !colorsBySlot.has(idx + 1)) {
           const hex = normalizeHexColor(val);
           if (hex) colorsBySlot.set(idx + 1, hex);
         }
@@ -460,6 +497,42 @@ function parseModelSettings(
         }
 
         settings.set(oid, objSetting);
+      }
+
+      const plateEls = doc.getElementsByTagName("plate");
+      for (let i = 0; i < plateEls.length; i++) {
+        const plateEl = plateEls[i];
+        let plateIndex = i + 1;
+        let plateName: string | undefined;
+        for (const meta of getDirectChildrenByTag(plateEl, "metadata")) {
+          const key = meta.getAttribute("key");
+          const val = meta.getAttribute("value");
+          if (key === "plater_id" && val) {
+            const parsed = parseInt(val, 10);
+            if (Number.isFinite(parsed) && parsed > 0) plateIndex = parsed;
+          }
+          if (key === "plater_name" && val && val.trim()) {
+            plateName = val.trim();
+          }
+        }
+
+        for (const instEl of getDirectChildrenByTag(plateEl, "model_instance")) {
+          let objId: string | null = null;
+          for (const meta of getDirectChildrenByTag(instEl, "metadata")) {
+            if (meta.getAttribute("key") === "object_id") {
+              objId = meta.getAttribute("value");
+              break;
+            }
+          }
+          if (!objId) continue;
+          let objSetting = settings.get(objId);
+          if (!objSetting) {
+            objSetting = { parts: new Map() };
+            settings.set(objId, objSetting);
+          }
+          objSetting.plateIndex = plateIndex;
+          if (plateName) objSetting.plateName = plateName;
+        }
       }
     } catch {
       // Ignore malformed XML
@@ -737,6 +810,11 @@ function getOrConvertColor(
   let c = cache.get(hex);
   if (!c) {
     c = new THREE.Color().setStyle(hex, THREE.SRGBColorSpace);
+    // Subtle linear reflectance floor so near-black filaments (#161616) show crisp 3D bevels against dark slate
+    const minLinear = 0.028;
+    c.r = minLinear + c.r * (1 - minLinear);
+    c.g = minLinear + c.g * (1 - minLinear);
+    c.b = minLinear + c.b * (1 - minLinear);
     cache.set(hex, c);
   }
   return c;
@@ -750,7 +828,9 @@ function buildSlicer3MFMesh(
   profile: ParsedFilamentProfile,
   usedSlots: Set<number>,
   usedColors: Set<string>,
-  colorCache: Map<string, THREE.Color>
+  colorCache: Map<string, THREE.Color>,
+  plateIndex?: number,
+  plateName?: string
 ): THREE.Mesh | null {
   if (!obj.mesh) return null;
   const { vertices, triangles } = obj.mesh;
@@ -802,6 +882,9 @@ function buildSlicer3MFMesh(
     return DEFAULT_MODEL_HEX;
   };
 
+  const meshColors = new Set<string>();
+  let meshTriangleCount = 0;
+
   // Fast path: uniform single-material mesh (no paint_color and no multi-color pid)
   if (!hasPaintAttr && !hasStandardMultiColor) {
     const indices = new Uint32Array(triangles.length * 3);
@@ -829,12 +912,13 @@ function buildSlicer3MFMesh(
 
     const hex = resolveExtruderHex(defaultExtruder);
     usedColors.add(hex);
+    meshColors.add(hex);
+    meshTriangleCount = triangles.length;
 
     const material = new THREE.MeshStandardMaterial({
       color: getOrConvertColor(hex, colorCache).clone(),
       roughness: 0.38,
-      metalness: 0.1,
-      flatShading: true,
+      metalness: 0.12,
     });
 
     const mesh = new THREE.Mesh(geometry, material);
@@ -842,8 +926,13 @@ function buildSlicer3MFMesh(
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.userData = {
-      originalColor: hex,
+      originalColor: "#" + material.color.getHexString(),
       originalVertexColors: false,
+      meshColors: Array.from(meshColors),
+      triangleCount: meshTriangleCount,
+      volumeMm3: calculateMeshVolume(geometry),
+      plateIndex: plateIndex ?? 1,
+      plateName,
     };
     return mesh;
   }
@@ -938,12 +1027,15 @@ function buildSlicer3MFMesh(
         );
         const hex = resolveExtruderHex(subExtruders[si]);
         usedColors.add(hex);
+        meshColors.add(hex);
         const col = getOrConvertColor(hex, colorCache);
         pushColorTri(col, col, col);
       }
+      meshTriangleCount += subExtruders.length;
       continue;
     }
 
+    meshTriangleCount++;
     if (flipWinding) {
       pushPosTri(ax, ay, az, cx, cy, cz, bx, by, bz);
     } else {
@@ -968,6 +1060,9 @@ function buildSlicer3MFMesh(
       usedColors.add(h1);
       usedColors.add(h2);
       usedColors.add(h3);
+      meshColors.add(h1);
+      meshColors.add(h2);
+      meshColors.add(h3);
       const c1 = getOrConvertColor(h1, colorCache);
       const c2 = getOrConvertColor(h2, colorCache);
       const c3 = getOrConvertColor(h3, colorCache);
@@ -979,11 +1074,13 @@ function buildSlicer3MFMesh(
     } else if (baseMats && p1 !== undefined && baseMats[p1]) {
       const hex = baseMats[p1];
       usedColors.add(hex);
+      meshColors.add(hex);
       const col = getOrConvertColor(hex, colorCache);
       pushColorTri(col, col, col);
     } else {
       const hex = resolveExtruderHex(defaultExtruder);
       usedColors.add(hex);
+      meshColors.add(hex);
       const col = getOrConvertColor(hex, colorCache);
       pushColorTri(col, col, col);
     }
@@ -1008,7 +1105,7 @@ function buildSlicer3MFMesh(
     color: 0xffffff,
     vertexColors: true,
     roughness: 0.38,
-    metalness: 0.1,
+    metalness: 0.12,
   });
 
   const mesh = new THREE.Mesh(geometry, material);
@@ -1018,6 +1115,11 @@ function buildSlicer3MFMesh(
   mesh.userData = {
     originalColor: "#ffffff",
     originalVertexColors: true,
+    meshColors: Array.from(meshColors),
+    triangleCount: meshTriangleCount,
+    volumeMm3: calculateMeshVolume(geometry),
+    plateIndex: plateIndex ?? 1,
+    plateName,
   };
   return mesh;
 }
@@ -1158,7 +1260,9 @@ export function load3MFModel(buffer: ArrayBuffer): Loaded3DModel {
           profile,
           usedSlots,
           usedColors,
-          colorCache
+          colorCache,
+          buildObjSetting?.plateIndex,
+          buildObjSetting?.plateName
         );
         if (mesh) {
           buildPlateGroup.add(mesh);
@@ -1198,6 +1302,73 @@ export function load3MFModel(buffer: ArrayBuffer): Loaded3DModel {
   const root = new THREE.Group();
   root.add(buildPlateGroup);
 
+  // Group meshes by plateIndex and compact multi-plate layouts along world X
+  const plateMeshes = new Map<number, THREE.Mesh[]>();
+  buildPlateGroup.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      const idx = (child.userData?.plateIndex as number | undefined) ?? 1;
+      const arr = plateMeshes.get(idx);
+      if (arr) arr.push(child);
+      else plateMeshes.set(idx, [child]);
+    }
+  });
+
+  const sortedPlateIndices = Array.from(plateMeshes.keys()).sort((a, b) => a - b);
+  const plates: PlateInfo[] = [];
+  const compactMultiPlate = sortedPlateIndices.length > 1;
+  const PLATE_GAP_MM = 24;
+  let cursorX = 0;
+
+  root.updateMatrixWorld(true);
+  for (const plateIdx of sortedPlateIndices) {
+    const meshes = plateMeshes.get(plateIdx)!;
+    const plateBox = new THREE.Box3();
+    let plateTriangles = 0;
+    const plateColorSet = new Set<string>();
+    let plateName: string | undefined;
+
+    for (const m of meshes) {
+      plateBox.expandByObject(m);
+      plateTriangles += (m.userData?.triangleCount as number | undefined) ?? 0;
+      const mColors = m.userData?.meshColors as string[] | undefined;
+      if (mColors) {
+        for (const c of mColors) plateColorSet.add(c);
+      }
+      if (!plateName && typeof m.userData?.plateName === "string") {
+        plateName = m.userData.plateName;
+      }
+    }
+
+    const plateSize = new THREE.Vector3();
+    plateBox.getSize(plateSize);
+    const plateCenter = new THREE.Vector3();
+    plateBox.getCenter(plateCenter);
+
+    plates.push({
+      index: plateIdx,
+      name: plateName,
+      triangleCount: Math.round(plateTriangles),
+      bbox: {
+        width: Number(plateSize.x.toFixed(2)),
+        depth: Number(plateSize.z.toFixed(2)),
+        height: Number(plateSize.y.toFixed(2)),
+      },
+      colors: Array.from(plateColorSet),
+    });
+
+    if (compactMultiPlate && !plateBox.isEmpty()) {
+      const dxW = cursorX - plateBox.min.x;
+      const dyW = -plateBox.min.y;
+      const dzW = -plateCenter.z;
+      for (const m of meshes) {
+        // buildPlateGroup is rotated -90 deg around X, so world (dx, dy, dz) maps to local (dx, -dz, dy)
+        m.position.set(dxW, -dzW, dyW);
+        m.userData.allPlatesPosition = m.position.clone();
+      }
+      cursorX += plateSize.x + PLATE_GAP_MM;
+    }
+  }
+
   const filaments: FilamentSlotInfo[] = [];
   const allSlots = new Set<number>([...profile.colorsBySlot.keys(), ...usedSlots]);
   for (const slot of Array.from(allSlots).sort((a, b) => a - b)) {
@@ -1215,7 +1386,104 @@ export function load3MFModel(buffer: ArrayBuffer): Loaded3DModel {
     overrideColors: Array.from(usedColors),
     filaments: filaments.length > 0 ? filaments : undefined,
     partCount,
+    plates: plates.length > 1 ? plates : undefined,
   });
 
   return { root, stats };
+}
+
+export interface FilteredPlateStats {
+  bbox: ModelStats["bbox"];
+  triangleCount: number;
+  vertexCount: number;
+  volumeCm3: number;
+  colors: string[];
+}
+
+/**
+ * Filters visible meshes to a single build plate (1-based) or restores all compacted plates (null),
+ * re-centering and grounding the visible geometry at Y=0.
+ */
+export function applyPlateFilter(
+  root: THREE.Group,
+  plateIndex: number | null
+): FilteredPlateStats {
+  let triangleCount = 0;
+  let vertexCount = 0;
+  let totalVolumeMm3 = 0;
+  const colorSet = new Set<string>();
+  let hasVertexColoredMesh = false;
+
+  root.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+
+    const meshPlate = (child.userData?.plateIndex as number | undefined) ?? 1;
+    const isVisible = plateIndex === null || meshPlate === plateIndex;
+    child.visible = isVisible;
+
+    if (plateIndex === null) {
+      if (child.userData?.allPlatesPosition instanceof THREE.Vector3) {
+        child.position.copy(child.userData.allPlatesPosition);
+      }
+    } else if (isVisible) {
+      child.position.set(0, 0, 0);
+    }
+
+    if (!isVisible) return;
+
+    const geom = child.geometry;
+    if (geom) {
+      const pos = geom.attributes.position;
+      if (pos) {
+        vertexCount += pos.count;
+      }
+    }
+
+    if (typeof child.userData?.triangleCount === "number") {
+      triangleCount += child.userData.triangleCount;
+    } else if (geom) {
+      const pos = geom.attributes.position;
+      if (geom.index) {
+        triangleCount += geom.index.count / 3;
+      } else if (pos) {
+        triangleCount += pos.count / 3;
+      }
+    }
+
+    if (typeof child.userData?.volumeMm3 === "number") {
+      totalVolumeMm3 += child.userData.volumeMm3;
+    } else if (geom) {
+      totalVolumeMm3 += calculateMeshVolume(geom);
+    }
+
+    const meshColors = child.userData?.meshColors as string[] | undefined;
+    if (meshColors && meshColors.length > 0) {
+      for (const c of meshColors) colorSet.add(c);
+    } else {
+      const mats = Array.isArray(child.material) ? child.material : [child.material];
+      for (const mat of mats) {
+        if (!mat) continue;
+        if (mat.vertexColors) {
+          hasVertexColoredMesh = true;
+        } else if ("color" in mat && mat.color instanceof THREE.Color) {
+          colorSet.add("#" + mat.color.getHexString());
+        }
+      }
+    }
+  });
+
+  root.position.set(0, 0, 0);
+  const bbox = recenterAndGroundObject(root);
+  const colors = Array.from(colorSet);
+  if (colors.length === 0 && hasVertexColoredMesh) {
+    colors.push("vertex-colors");
+  }
+
+  return {
+    bbox,
+    triangleCount: Math.round(triangleCount),
+    vertexCount,
+    volumeCm3: Number((totalVolumeMm3 / 1000.0).toFixed(2)),
+    colors,
+  };
 }
