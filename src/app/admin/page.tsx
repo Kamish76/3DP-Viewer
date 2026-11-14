@@ -89,14 +89,36 @@ export default function AdminPage() {
   };
 
   useEffect(() => {
-    fetchModels();
-    fetch("/api/auth/me")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data?.user) setCurrentUser(data.user);
-      })
-      .catch(() => {});
-  }, []);
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/auth/me");
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data?.authenticated) {
+          if (!active) return;
+          if (data?.error === "unauthorized_email") {
+            const params = new URLSearchParams({ error: "unauthorized_email" });
+            if (data.email) params.set("email", data.email);
+            router.replace(`/login?${params.toString()}`);
+          } else {
+            router.replace("/login");
+          }
+          return;
+        }
+        if (active && data?.user) {
+          setCurrentUser(data.user);
+        }
+        if (active) {
+          await fetchModels();
+        }
+      } catch {
+        if (active) router.replace("/login");
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [router]);
 
   // Handle Logout
   const handleLogout = async () => {
