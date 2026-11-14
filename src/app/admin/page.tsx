@@ -480,23 +480,23 @@ export default function AdminPage() {
               <p className="text-xs text-slate-400 mt-1">Supports standard STL and multi-color 3MF files</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 bg-slate-950/80 border border-slate-800 rounded-2xl p-5">
-              {/* Live 3D Preview in Upload Card */}
-              <div className="h-80 sm:h-96 rounded-xl overflow-hidden border border-slate-800 bg-slate-950 relative">
+            <div className="space-y-5 bg-slate-950/80 border border-slate-800 rounded-2xl p-5">
+              {/* Enlarged Live 3D Preview in Upload Card */}
+              <div className="w-full h-[380px] sm:h-[480px] lg:h-[540px] rounded-xl overflow-hidden border border-slate-800 bg-slate-950 relative">
                 {fileBuffer && (
                   <ThreeViewer
                     fileBuffer={fileBuffer}
                     format={fileFormat}
                     title={title}
                     onStatsLoaded={setPreviewStats}
-                    compact
+                    defaultShowStats={false}
                   />
                 )}
               </div>
 
-              {/* Upload Form Details */}
-              <div className="flex flex-col justify-between space-y-4">
-                <div className="space-y-4">
+              {/* Upload Form Details & Pre-flight Metrology */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+                <div className="lg:col-span-7 space-y-4">
                   <div>
                     <label className="block text-xs font-mono font-medium text-slate-400 uppercase tracking-wider mb-1.5">
                       Model Title
@@ -515,17 +515,19 @@ export default function AdminPage() {
                       Description (Optional)
                     </label>
                     <textarea
-                      rows={2}
+                      rows={3}
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
                       className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-sm focus:outline-none focus:border-sky-500 resize-none"
                       placeholder="Add design notes, printing material, or revision history..."
                     />
                   </div>
+                </div>
 
+                <div className="lg:col-span-5 flex flex-col justify-between space-y-4">
                   {/* Metrology preview */}
                   {previewStats && (
-                    <div className="p-3 bg-slate-900/90 border border-slate-800 rounded-xl text-xs font-mono text-slate-300 space-y-1">
+                    <div className="p-3.5 bg-slate-900/90 border border-slate-800 rounded-xl text-xs font-mono text-slate-300 space-y-1.5">
                       <div className="text-[10px] text-sky-400 uppercase font-bold tracking-wider mb-1">
                         Pre-flight Metrology
                       </div>
@@ -558,36 +560,36 @@ export default function AdminPage() {
                       )}
                     </div>
                   )}
-                </div>
 
-                <div className="flex items-center gap-3 pt-2">
-                  <button
-                    onClick={() => {
-                      setSelectedFile(null);
-                      setFileBuffer(null);
-                      setPreviewStats(null);
-                    }}
-                    className="px-4 py-2.5 rounded-xl border border-slate-800 hover:bg-slate-800 text-slate-400 hover:text-white text-xs font-medium transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleUpload}
-                    disabled={uploading}
-                    className="flex-1 py-2.5 px-4 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-medium text-xs rounded-xl transition-all shadow-lg shadow-sky-500/25 flex items-center justify-center gap-2 disabled:opacity-50"
-                  >
-                    {uploading ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        <span>{uploadProgress || "Uploading..."}</span>
-                      </>
-                    ) : (
-                      <>
-                        <UploadCloud className="w-4 h-4" />
-                        <span>Save & Generate Public Share Link</span>
-                      </>
-                    )}
-                  </button>
+                  <div className="flex items-center gap-3 mt-auto pt-1">
+                    <button
+                      onClick={() => {
+                        setSelectedFile(null);
+                        setFileBuffer(null);
+                        setPreviewStats(null);
+                      }}
+                      className="px-4 py-2.5 rounded-xl border border-slate-800 hover:bg-slate-800 text-slate-400 hover:text-white text-xs font-medium transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleUpload}
+                      disabled={uploading}
+                      className="flex-1 py-2.5 px-4 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-medium text-xs rounded-xl transition-all shadow-lg shadow-sky-500/25 flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {uploading ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          <span>{uploadProgress || "Uploading..."}</span>
+                        </>
+                      ) : (
+                        <>
+                          <UploadCloud className="w-4 h-4" />
+                          <span>Save & Generate Public Share Link</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
