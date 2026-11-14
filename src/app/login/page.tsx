@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Box, Lock, ArrowRight, ShieldCheck, AlertCircle } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { Box, Lock, ShieldCheck, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import { authClient } from "@/lib/auth/client";
 
@@ -30,15 +30,11 @@ function GoogleIcon({ className = "w-5 h-5" }: { className?: string }) {
 }
 
 function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   const urlError = searchParams.get("error");
   const urlEmail = searchParams.get("email");
 
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,10 +43,10 @@ function LoginForm() {
     switch (urlError) {
       case "unauthorized_email":
         return urlEmail
-          ? `Account "${urlEmail}" is not authorized to access this dashboard.`
-          : "Your Google account is not authorized to access this dashboard.";
+          ? `Access denied: ${urlEmail} is not authorized. Only the site owner can sign in.`
+          : "Access denied: Only the site owner Google account is authorized to sign in.";
       case "not_configured":
-        return "Google OAuth is not configured. Please add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env.local.";
+        return "Google OAuth is not configured on this deployment.";
       case "invalid_state":
         return "Authentication session expired or invalid state. Please try again.";
       case "missing_code":
@@ -66,33 +62,8 @@ function LoginForm() {
 
   const displayError = error || getUrlErrorMessage();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Login failed");
-      }
-
-      router.push("/admin");
-      router.refresh();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to sign in");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleGoogleLogin = async () => {
+    setError(null);
     setGoogleLoading(true);
     try {
       await authClient.signIn.social({
@@ -112,7 +83,7 @@ function LoginForm() {
           <Box className="w-7 h-7 text-white" />
         </div>
         <h1 className="text-2xl font-bold text-white tracking-tight">Owner Sign In</h1>
-        <p className="text-sm text-slate-400 mt-1">Single-Account 3D Model Platform</p>
+        <p className="text-sm text-slate-400 mt-1">Single-Owner 3D Model Platform</p>
       </div>
 
       {displayError && (
@@ -122,87 +93,34 @@ function LoginForm() {
         </div>
       )}
 
-      {/* Google Login Button */}
+      {/* Sole-Owner Google Login Button */}
       <button
         type="button"
         onClick={handleGoogleLogin}
         disabled={googleLoading}
-        className="w-full py-3 px-4 bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 hover:border-slate-600 text-slate-200 hover:text-white font-medium rounded-xl transition-all shadow-sm flex items-center justify-center gap-3 disabled:opacity-60 cursor-pointer"
+        className="w-full py-3.5 px-4 bg-gradient-to-r from-sky-500/15 to-indigo-600/15 hover:from-sky-500/25 hover:to-indigo-600/25 border border-sky-500/40 hover:border-sky-400/60 text-white font-medium rounded-xl transition-all shadow-lg shadow-sky-500/10 flex items-center justify-center gap-3 disabled:opacity-60 cursor-pointer"
       >
         {googleLoading ? (
           <div className="w-5 h-5 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
         ) : (
           <>
             <GoogleIcon className="w-5 h-5 shrink-0" />
-            <span className="text-sm">Continue with Google</span>
+            <span className="text-sm font-semibold">Continue with Google</span>
           </>
         )}
       </button>
 
-      {/* Divider */}
-      <div className="relative my-6">
-        <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-slate-800" />
-        </div>
-        <div className="relative flex justify-center text-xs uppercase">
-          <span className="bg-slate-900/90 px-3 text-slate-500 font-mono tracking-wider">
-            or sign in with password
-          </span>
-        </div>
+      <div className="mt-5 p-3.5 bg-slate-950/70 border border-slate-800/80 rounded-xl flex items-start gap-2.5">
+        <Lock className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
+        <p className="text-xs text-slate-400 leading-relaxed">
+          Access is locked exclusively to the verified site owner&apos;s Google account. Other Google accounts and password sign-ins are blocked.
+        </p>
       </div>
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block text-xs font-mono font-medium text-slate-300 uppercase tracking-wider mb-2">
-            Username
-          </label>
-          <input
-            type="text"
-            required
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-all font-mono text-sm"
-            placeholder="admin"
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs font-mono font-medium text-slate-300 uppercase tracking-wider mb-2">
-            Password
-          </label>
-          <div className="relative">
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-all text-sm"
-              placeholder="Enter password"
-            />
-            <Lock className="w-4 h-4 text-slate-500 absolute right-3.5 top-3" />
-          </div>
-        </div>
-
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full mt-2 py-3 px-4 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-medium rounded-xl transition-all shadow-lg shadow-sky-500/25 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
-        >
-          {loading ? (
-            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-          ) : (
-            <>
-              <span>Access Dashboard</span>
-              <ArrowRight className="w-4 h-4" />
-            </>
-          )}
-        </button>
-      </form>
 
       <div className="mt-8 pt-6 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-500">
         <span className="flex items-center gap-1.5">
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-          Neon PostgreSQL Session
+          Neon Auth Protected
         </span>
         <Link href="/" className="hover:text-slate-300 transition-colors">
           Return to Home
@@ -217,7 +135,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center p-4 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-slate-950 to-black">
       <Suspense
         fallback={
-          <div className="w-full max-w-md bg-slate-900/90 border border-slate-800 p-8 rounded-2xl flex items-center justify-center min-h-[400px]">
+          <div className="w-full max-w-md bg-slate-900/90 border border-slate-800 p-8 rounded-2xl flex items-center justify-center min-h-[320px]">
             <div className="w-6 h-6 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
           </div>
         }
