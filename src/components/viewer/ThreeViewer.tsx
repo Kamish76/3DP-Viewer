@@ -21,6 +21,19 @@ interface ThreeViewerProps {
   className?: string;
 }
 
+function disposeObject3D(root: THREE.Object3D) {
+  root.traverse((obj) => {
+    if (obj instanceof THREE.Mesh || obj instanceof THREE.LineSegments || obj instanceof THREE.Points) {
+      obj.geometry.dispose();
+      if (Array.isArray(obj.material)) {
+        obj.material.forEach((m) => m.dispose());
+      } else if (obj.material) {
+        obj.material.dispose();
+      }
+    }
+  });
+}
+
 export function ThreeViewer({
   fileUrl,
   fileBuffer,
@@ -57,16 +70,7 @@ export function ThreeViewer({
   const clearEdgesGroup = useCallback(() => {
     const group = edgesGroupRef.current;
     if (!group) return;
-    group.traverse((obj) => {
-      if (obj instanceof THREE.LineSegments) {
-        obj.geometry.dispose();
-        if (Array.isArray(obj.material)) {
-          obj.material.forEach((m) => m.dispose());
-        } else {
-          obj.material.dispose();
-        }
-      }
-    });
+    disposeObject3D(group);
     group.clear();
   }, []);
 
@@ -213,6 +217,15 @@ export function ThreeViewer({
     return () => {
       cancelAnimationFrame(animationFrameId);
       window.removeEventListener("resize", handleResize);
+      if (currentModelRef.current) {
+        disposeObject3D(currentModelRef.current);
+        currentModelRef.current = null;
+      }
+      if (edgesGroupRef.current) {
+        disposeObject3D(edgesGroupRef.current);
+      }
+      shadowPlaneGeom.dispose();
+      shadowPlaneMat.dispose();
       controls.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode === container) {
@@ -275,9 +288,10 @@ export function ThreeViewer({
       const scene = sceneRef.current;
 
       try {
-        // Remove previous model
+        // Remove and dispose previous model
         if (currentModelRef.current) {
           scene.remove(currentModelRef.current);
+          disposeObject3D(currentModelRef.current);
           currentModelRef.current = null;
         }
         clearEdgesGroup();
