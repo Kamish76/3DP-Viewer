@@ -482,13 +482,14 @@ export default function AdminPage() {
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 bg-slate-950/80 border border-slate-800 rounded-2xl p-5">
               {/* Live 3D Preview in Upload Card */}
-              <div className="h-72 sm:h-80 rounded-xl overflow-hidden border border-slate-800 bg-slate-950 relative">
+              <div className="h-80 sm:h-96 rounded-xl overflow-hidden border border-slate-800 bg-slate-950 relative">
                 {fileBuffer && (
                   <ThreeViewer
                     fileBuffer={fileBuffer}
                     format={fileFormat}
                     title={title}
                     onStatsLoaded={setPreviewStats}
+                    compact
                   />
                 )}
               </div>

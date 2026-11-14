@@ -20,6 +20,7 @@ interface ThreeViewerProps {
   title?: string;
   onStatsLoaded?: (stats: ModelStats) => void;
   className?: string;
+  compact?: boolean;
 }
 
 function disposeObject3D(root: THREE.Object3D) {
@@ -42,6 +43,7 @@ export function ThreeViewer({
   title,
   onStatsLoaded,
   className = "",
+  compact = false,
 }: ThreeViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -140,8 +142,11 @@ export function ThreeViewer({
       preserveDrawingBuffer: true,
       powerPreference: "high-performance",
     });
-    renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(width, height, false);
+    renderer.domElement.style.display = "block";
+    renderer.domElement.style.width = `${width}px`;
+    renderer.domElement.style.height = `${height}px`;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -205,20 +210,55 @@ export function ThreeViewer({
     };
     animate();
 
-    // Resize Handler
+    // Resize & Fullscreen Handlers
+    let fullscreenRafId: number | null = null;
+    let fullscreenTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
     const handleResize = () => {
       if (!container) return;
       const w = container.clientWidth;
       const h = container.clientHeight;
+      if (w <= 0 || h <= 0) return;
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
-      renderer.setSize(w, h);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setSize(w, h, false);
+      renderer.domElement.style.width = `${w}px`;
+      renderer.domElement.style.height = `${h}px`;
+      renderer.render(scene, camera);
     };
+
+    const handleFullscreenChange = () => {
+      const fsEl =
+        document.fullscreenElement ||
+        (document as Document & { webkitFullscreenElement?: Element | null })
+          .webkitFullscreenElement;
+      setIsFullscreen(Boolean(fsEl));
+      handleResize();
+      if (fullscreenRafId !== null) cancelAnimationFrame(fullscreenRafId);
+      fullscreenRafId = requestAnimationFrame(handleResize);
+      if (fullscreenTimeoutId !== null) clearTimeout(fullscreenTimeoutId);
+      fullscreenTimeoutId = setTimeout(handleResize, 120);
+    };
+
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => handleResize())
+        : null;
+    resizeObserver?.observe(container);
+
     window.addEventListener("resize", handleResize);
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
 
     return () => {
       cancelAnimationFrame(animationFrameId);
+      if (fullscreenRafId !== null) cancelAnimationFrame(fullscreenRafId);
+      if (fullscreenTimeoutId !== null) clearTimeout(fullscreenTimeoutId);
+      resizeObserver?.disconnect();
       window.removeEventListener("resize", handleResize);
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
       if (currentModelRef.current) {
         disposeObject3D(currentModelRef.current);
         currentModelRef.current = null;
@@ -636,12 +676,36 @@ export function ThreeViewer({
   };
 
   // Toggle Fullscreen
-  const handleToggleFullscreen = () => {
-    if (!containerRef.current) return;
-    if (!document.fullscreenElement) {
-      containerRef.current.requestFullscreen().then(() => setIsFullscreen(true));
-    } else {
-      document.exitFullscreen().then(() => setIsFullscreen(false));
+  const handleToggleFullscreen = async () => {
+    const el = containerRef.current as
+      | (HTMLDivElement & { webkitRequestFullscreen?: () => Promise<void> | void })
+      | null;
+    if (!el) return;
+    const doc = document as Document & {
+      webkitFullscreenElement?: Element | null;
+      webkitExitFullscreen?: () => Promise<void> | void;
+    };
+    const isCurrentlyFullscreen = Boolean(document.fullscreenElement || doc.webkitFullscreenElement);
+
+    try {
+      if (!isCurrentlyFullscreen) {
+        if (el.requestFullscreen) {
+          await el.requestFullscreen();
+        } else if (el.webkitRequestFullscreen) {
+          await el.webkitRequestFullscreen();
+        }
+        setIsFullscreen(true);
+      } else {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        } else if (doc.webkitExitFullscreen) {
+          await doc.webkitExitFullscreen();
+        }
+        setIsFullscreen(false);
+      }
+    } catch (err) {
+      console.warn("Fullscreen toggle failed:", err);
+      setIsFullscreen(Boolean(document.fullscreenElement || doc.webkitFullscreenElement));
     }
   };
 
@@ -693,6 +757,7 @@ export function ThreeViewer({
           onTakeScreenshot={handleTakeScreenshot}
           onToggleFullscreen={handleToggleFullscreen}
           isFullscreen={isFullscreen}
+          compact={compact && !isFullscreen}
           activePlate={activePlate}
           onSelectPlate={handleSelectPlate}
         />
