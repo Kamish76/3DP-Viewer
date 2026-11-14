@@ -90,6 +90,8 @@ interface ViewerControlsProps {
   onTakeScreenshot: () => void;
   onToggleFullscreen: () => void;
   isFullscreen: boolean;
+  activePlate?: number | null;
+  onSelectPlate?: (plateIndex: number | null) => void;
 }
 
 const PRESET_COLORS = [
@@ -122,6 +124,8 @@ export function ViewerControls({
   onTakeScreenshot,
   onToggleFullscreen,
   isFullscreen,
+  activePlate = null,
+  onSelectPlate,
 }: ViewerControlsProps) {
   const [showStats, setShowStats] = useState(true);
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -148,6 +152,55 @@ export function ViewerControls({
             {format.toUpperCase()}
             {stats?.hasColors ? " (Color)" : ""}
           </span>
+        </div>
+      )}
+
+      {/* Top Left (below title): Multi-Plate Selector */}
+      {stats?.plates && stats.plates.length > 1 && onSelectPlate && (
+        <div
+          className={`absolute ${
+            title ? "top-16" : "top-4"
+          } left-4 z-20 flex flex-wrap items-center gap-1 bg-neutral-900/80 backdrop-blur-md border border-neutral-700/60 rounded-xl p-1 text-xs shadow-xl pointer-events-auto max-w-[calc(100vw-8rem)]`}
+        >
+          <button
+            onClick={() => onSelectPlate(null)}
+            className={`px-2.5 py-1 rounded-lg font-mono text-[11px] font-medium transition-colors cursor-pointer ${
+              activePlate === null
+                ? "bg-sky-500/20 text-sky-300 border border-sky-500/40"
+                : "text-neutral-300 hover:bg-neutral-800 hover:text-white border border-transparent"
+            }`}
+          >
+            All Plates ({stats.plates.length})
+          </button>
+          {stats.plates.map((plate) => (
+            <button
+              key={plate.index}
+              onClick={() => onSelectPlate(plate.index)}
+              title={
+                plate.name
+                  ? `${plate.name} (${plate.bbox.width} × ${plate.bbox.depth} × ${plate.bbox.height} mm)`
+                  : `Plate ${plate.index} (${plate.bbox.width} × ${plate.bbox.depth} × ${plate.bbox.height} mm)`
+              }
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-mono text-[11px] font-medium transition-colors cursor-pointer ${
+                activePlate === plate.index
+                  ? "bg-purple-500/20 text-purple-300 border border-purple-500/40"
+                  : "text-neutral-300 hover:bg-neutral-800 hover:text-white border border-transparent"
+              }`}
+            >
+              <span>Plate {plate.index}</span>
+              {plate.colors.length > 0 && (
+                <span className="flex items-center gap-0.5">
+                  {plate.colors.slice(0, 4).map((c, idx) => (
+                    <span
+                      key={idx}
+                      className="w-2 h-2 rounded-full border border-white/25"
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                </span>
+              )}
+            </button>
+          ))}
         </div>
       )}
 
@@ -430,6 +483,14 @@ export function ViewerControls({
               <div className="flex justify-between">
                 <span className="text-neutral-500">Parts:</span>
                 <span className="text-white font-medium">{stats.partCount}</span>
+              </div>
+            )}
+            {stats.plates && stats.plates.length > 1 && (
+              <div className="flex justify-between">
+                <span className="text-neutral-500">Build Plates:</span>
+                <span className="text-purple-300 font-medium">
+                  {activePlate ? `Plate ${activePlate} of ${stats.plates.length}` : `${stats.plates.length} plates`}
+                </span>
               </div>
             )}
 
