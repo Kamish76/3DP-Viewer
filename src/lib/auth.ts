@@ -1,71 +1,43 @@
-import { SignJWT, jwtVerify } from "jose";
-import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { users } from "@/db/schema";
-import { eq } from "drizzle-orm";
 import { auth } from "@/lib/auth/server";
 
-const SECRET_KEY = new TextEncoder().encode(
-  process.env.SESSION_SECRET || "stl-viewer-fallback-session-secret-key-min-32-chars-long"
-);
 const COOKIE_NAME = "admin_session";
 
-export async function hashPassword(password: string): Promise<string> {
-  return bcrypt.hash(password, 10);
-}
+export const OWNER_EMAIL = (
+  process.env.OWNER_EMAIL ||
+  process.env.ALLOWED_GOOGLE_EMAILS?.split(",")[0] ||
+  "jabezrafael1@gmail.com"
+)
+  .trim()
+  .toLowerCase();
 
-export async function verifyPassword(password: string, hash: string): Promise<boolean> {
-  return bcrypt.compare(password, hash);
+/** Strictly restricts owner privileges to the configured sole owner email. */
+export function isOwnerEmail(email?: string | null): boolean {
+  return Boolean(email && email.trim().toLowerCase() === OWNER_EMAIL);
 }
 
 export async function ensureAdminUser(): Promise<void> {
   try {
-    const defaultUsername = process.env.ADMIN_USERNAME || "admin";
-    const defaultPassword = process.env.ADMIN_PASSWORD || "changeme123";
-
     const existing = await db.query.users.findFirst({
-      where: eq(users.username, defaultUsername),
+      where: eq(users.email, OWNER_EMAIL),
     });
 
     if (!existing) {
-      const passwordHash = await hashPassword(defaultPassword);
-      await db.insert(users).values({
-        username: defaultUsername,
-        passwordHash,
-      });
-      console.log(`[auth] Default admin user '${defaultUsername}' seeded successfully.`);
+      await db
+        .insert(users)
+        .values({
+          username: OWNER_EMAIL,
+          email: OWNER_EMAIL,
+          passwordHash: null,
+        })
+        .onConflictDoNothing();
     }
   } catch (err) {
-    console.error("[auth] Failed to ensure admin user:", err);
+    console.error("[auth] Failed to ensure owner user:", err);
   }
-}
-
-export async function createSession(
-  username: string,
-  extra?: { email?: string; avatarUrl?: string }
-): Promise<string> {
-  const token = await new SignJWT({
-    username,
-    role: "admin",
-    email: extra?.email,
-    avatarUrl: extra?.avatarUrl,
-  })
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime("7d")
-    .sign(SECRET_KEY);
-
-  const cookieStore = await cookies();
-  cookieStore.set(COOKIE_NAME, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 7, // 7 days
-  });
-
-  return token;
 }
 
 export async function clearSession(): Promise<void> {
@@ -74,39 +46,27 @@ export async function clearSession(): Promise<void> {
 }
 
 export async function getSession(): Promise<{
+  userId: string;
   username: string;
   role: string;
-  email?: string;
+  email: string;
   avatarUrl?: string;
+  picture?: string;
 } | null> {
-  // 1. Check Neon Managed Better Auth session first
   try {
     const neonSession = await auth.getSession();
-    if (neonSession?.data?.user) {
-      const user = neonSession.data.user;
-      return {
-        username: user.email || user.name || "owner",
-        role: "admin",
-        email: user.email || undefined,
-        avatarUrl: user.image || undefined,
-      };
+    const user = neonSession?.data?.user;
+    if (!user?.email || !isOwnerEmail(user.email)) {
+      return null;
     }
-  } catch (err) {
-    // If Neon Auth session check fails or is unconfigured, fall through to cookie check
-  }
 
-  // 2. Fallback to legacy JWT session cookie
-  try {
-    const cookieStore = await cookies();
-    const token = cookieStore.get(COOKIE_NAME)?.value;
-    if (!token) return null;
-
-    const { payload } = await jwtVerify(token, SECRET_KEY);
     return {
-      username: payload.username as string,
-      role: payload.role as string,
-      email: payload.email as string | undefined,
-      avatarUrl: payload.avatarUrl as string | undefined,
+      userId: user.id,
+      username: user.name || user.email,
+      role: "admin",
+      email: user.email,
+      avatarUrl: user.image || undefined,
+      picture: user.image || undefined,
     };
   } catch {
     return null;
