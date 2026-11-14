@@ -3,14 +3,13 @@
 import React, { useState } from "react";
 import {
   RotateCcw,
+  RotateCw,
   Maximize2,
   Camera,
   Grid,
-  Layers,
   Palette,
   Info,
   Box,
-  Compass,
   Play,
   Pause,
 } from "lucide-react";
@@ -24,10 +23,13 @@ interface ViewerControlsProps {
   title?: string;
   onResetCamera: () => void;
   onSetCameraView: (view: "iso" | "top" | "front" | "right") => void;
+  onRotateModel: (axis: "x" | "y" | "z") => void;
   shadingMode: ShadingMode;
   onChangeShadingMode: (mode: ShadingMode) => void;
   modelColor: string;
   onChangeModelColor: (color: string) => void;
+  onResetModelColor: () => void;
+  isColorOverridden: boolean;
   showGrid: boolean;
   onToggleGrid: () => void;
   autoRotate: boolean;
@@ -53,10 +55,13 @@ export function ViewerControls({
   title,
   onResetCamera,
   onSetCameraView,
+  onRotateModel,
   shadingMode,
   onChangeShadingMode,
   modelColor,
   onChangeModelColor,
+  onResetModelColor,
+  isColorOverridden,
   showGrid,
   onToggleGrid,
   autoRotate,
@@ -67,6 +72,9 @@ export function ViewerControls({
 }: ViewerControlsProps) {
   const [showStats, setShowStats] = useState(true);
   const [showColorPicker, setShowColorPicker] = useState(false);
+
+  const canResetProfileColors =
+    isColorOverridden && (format === "3mf" || stats?.hasColors);
 
   return (
     <>
@@ -129,103 +137,54 @@ export function ViewerControls({
         </button>
       </div>
 
-      {/* Bottom Floating Toolbar: Camera, Shading, Colors */}
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 bg-neutral-900/85 backdrop-blur-md border border-neutral-700/70 rounded-2xl p-2 text-white shadow-2xl pointer-events-auto max-w-[95vw] overflow-x-auto">
-        {/* Camera Views */}
-        <div className="flex items-center gap-1 border-r border-neutral-800 pr-2">
-          <button
-            onClick={onResetCamera}
-            title="Reset Camera Framing"
-            className="p-2 rounded-lg hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => onSetCameraView("iso")}
-            className="px-2 py-1 rounded-md text-xs font-mono font-medium hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
-          >
-            ISO
-          </button>
-          <button
-            onClick={() => onSetCameraView("top")}
-            className="px-2 py-1 rounded-md text-xs font-mono font-medium hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
-          >
-            TOP
-          </button>
-          <button
-            onClick={() => onSetCameraView("front")}
-            className="px-2 py-1 rounded-md text-xs font-mono font-medium hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
-          >
-            FRONT
-          </button>
-          <button
-            onClick={() => onSetCameraView("right")}
-            className="px-2 py-1 rounded-md text-xs font-mono font-medium hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
-          >
-            SIDE
-          </button>
-        </div>
+      {/* Bottom Floating Toolbar: Camera, Orientation, Shading, Colors */}
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 pointer-events-auto max-w-[95vw]">
+        {showColorPicker && (
+          <div className="mb-2 mx-auto w-fit max-w-[90vw] bg-neutral-900/95 backdrop-blur-md border border-neutral-700 rounded-xl p-3 shadow-2xl space-y-2.5 text-xs text-neutral-200">
+            {stats?.filaments && stats.filaments.length > 0 && (
+              <div className="space-y-1.5 border-b border-neutral-800 pb-2">
+                <div className="flex items-center justify-between gap-4 text-[10px] font-mono uppercase tracking-wider text-neutral-400">
+                  <span>3MF Profile Filaments</span>
+                  {canResetProfileColors && (
+                    <button
+                      onClick={() => {
+                        onResetModelColor();
+                        setShowColorPicker(false);
+                      }}
+                      className="text-sky-400 hover:text-sky-300 font-semibold normal-case"
+                    >
+                      Reset to Profile Colors
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {stats.filaments.map((f) => (
+                    <button
+                      key={f.slot}
+                      onClick={() => {
+                        onChangeModelColor(f.color);
+                        setShowColorPicker(false);
+                      }}
+                      title={`Slot #${f.slot}${f.type ? ` (${f.type})` : ""}: ${f.color}`}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] font-mono transition-colors ${
+                        f.active === false
+                          ? "border-neutral-800 bg-neutral-950/60 text-neutral-500 hover:text-neutral-300"
+                          : "border-neutral-700 bg-neutral-800/80 text-neutral-200 hover:border-neutral-500"
+                      }`}
+                    >
+                      <span
+                        className="w-3 h-3 rounded-full border border-white/25 shrink-0"
+                        style={{ backgroundColor: f.color }}
+                      />
+                      <span>#{f.slot}</span>
+                      {f.type && <span className="text-neutral-400">{f.type}</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
-        {/* Shading Modes */}
-        <div className="flex items-center gap-1 border-r border-neutral-800 pr-2">
-          <button
-            onClick={() => onChangeShadingMode("shaded")}
-            className={`px-2 py-1 rounded-md text-xs font-medium transition-colors ${
-              shadingMode === "shaded"
-                ? "bg-sky-500/20 text-sky-400 font-semibold"
-                : "text-neutral-400 hover:text-white hover:bg-neutral-800"
-            }`}
-          >
-            Solid
-          </button>
-          <button
-            onClick={() => onChangeShadingMode("edges")}
-            className={`px-2 py-1 rounded-md text-xs font-medium transition-colors ${
-              shadingMode === "edges"
-                ? "bg-sky-500/20 text-sky-400 font-semibold"
-                : "text-neutral-400 hover:text-white hover:bg-neutral-800"
-            }`}
-          >
-            Edges
-          </button>
-          <button
-            onClick={() => onChangeShadingMode("wireframe")}
-            className={`px-2 py-1 rounded-md text-xs font-medium transition-colors ${
-              shadingMode === "wireframe"
-                ? "bg-sky-500/20 text-sky-400 font-semibold"
-                : "text-neutral-400 hover:text-white hover:bg-neutral-800"
-            }`}
-          >
-            Wire
-          </button>
-          <button
-            onClick={() => onChangeShadingMode("transparent")}
-            className={`px-2 py-1 rounded-md text-xs font-medium transition-colors ${
-              shadingMode === "transparent"
-                ? "bg-sky-500/20 text-sky-400 font-semibold"
-                : "text-neutral-400 hover:text-white hover:bg-neutral-800"
-            }`}
-          >
-            X-Ray
-          </button>
-        </div>
-
-        {/* Color Palette Toggle (useful for STL or tint) */}
-        <div className="relative">
-          <button
-            onClick={() => setShowColorPicker(!showColorPicker)}
-            title="Material Color"
-            className="p-2 rounded-lg hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors flex items-center gap-1.5"
-          >
-            <Palette className="w-4 h-4" />
-            <span
-              className="w-3 h-3 rounded-full border border-white/40"
-              style={{ backgroundColor: modelColor }}
-            />
-          </button>
-
-          {showColorPicker && (
-            <div className="absolute bottom-12 left-1/2 -translate-x-1/2 bg-neutral-900 border border-neutral-700 rounded-xl p-2.5 shadow-2xl flex items-center gap-2 z-30">
+            <div className="flex items-center gap-2">
               {PRESET_COLORS.map((c) => (
                 <button
                   key={c}
@@ -244,25 +203,163 @@ export function ViewerControls({
                 className="w-6 h-6 rounded-md cursor-pointer bg-transparent border-0"
                 title="Custom Color"
               />
+              {canResetProfileColors && (!stats?.filaments || stats.filaments.length === 0) && (
+                <button
+                  onClick={() => {
+                    onResetModelColor();
+                    setShowColorPicker(false);
+                  }}
+                  className="ml-1 px-2 py-1 rounded-md bg-sky-500/20 text-sky-300 hover:bg-sky-500/30 text-[10px] font-medium"
+                >
+                  Reset
+                </button>
+              )}
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
-        {/* Toggle Stats Panel */}
-        <button
-          onClick={() => setShowStats(!showStats)}
-          className={`p-2 rounded-lg transition-colors ${
-            showStats ? "bg-sky-500/20 text-sky-400" : "hover:bg-neutral-800 text-neutral-300"
-          }`}
-          title="Toggle Dimensions & Telemetry"
-        >
-          <Info className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-2 bg-neutral-900/85 backdrop-blur-md border border-neutral-700/70 rounded-2xl p-2 text-white shadow-2xl overflow-x-auto">
+          {/* Camera Views */}
+          <div className="flex items-center gap-1 border-r border-neutral-800 pr-2 shrink-0">
+            <button
+              onClick={onResetCamera}
+              title="Reset Camera Framing"
+              className="p-2 rounded-lg hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => onSetCameraView("iso")}
+              className="px-2 py-1 rounded-md text-xs font-mono font-medium hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
+            >
+              ISO
+            </button>
+            <button
+              onClick={() => onSetCameraView("top")}
+              className="px-2 py-1 rounded-md text-xs font-mono font-medium hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
+            >
+              TOP
+            </button>
+            <button
+              onClick={() => onSetCameraView("front")}
+              className="px-2 py-1 rounded-md text-xs font-mono font-medium hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
+            >
+              FRONT
+            </button>
+            <button
+              onClick={() => onSetCameraView("right")}
+              className="px-2 py-1 rounded-md text-xs font-mono font-medium hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
+            >
+              SIDE
+            </button>
+          </div>
+
+          {/* Model Orientation (90° step rotation) */}
+          <div
+            className="flex items-center gap-1 border-r border-neutral-800 pr-2 shrink-0"
+            title="Rotate Model Orientation 90°"
+          >
+            <RotateCw className="w-3.5 h-3.5 text-neutral-500 mx-0.5" />
+            <button
+              onClick={() => onRotateModel("x")}
+              title="Rotate Model +90° around X axis"
+              className="px-1.5 py-1 rounded-md text-[11px] font-mono font-medium hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
+            >
+              X
+            </button>
+            <button
+              onClick={() => onRotateModel("y")}
+              title="Rotate Model +90° around Vertical Y axis"
+              className="px-1.5 py-1 rounded-md text-[11px] font-mono font-medium hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
+            >
+              Y
+            </button>
+            <button
+              onClick={() => onRotateModel("z")}
+              title="Rotate Model +90° around Z axis"
+              className="px-1.5 py-1 rounded-md text-[11px] font-mono font-medium hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors"
+            >
+              Z
+            </button>
+          </div>
+
+          {/* Shading Modes */}
+          <div className="flex items-center gap-1 border-r border-neutral-800 pr-2 shrink-0">
+            <button
+              onClick={() => onChangeShadingMode("shaded")}
+              className={`px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+                shadingMode === "shaded"
+                  ? "bg-sky-500/20 text-sky-400 font-semibold"
+                  : "text-neutral-400 hover:text-white hover:bg-neutral-800"
+              }`}
+            >
+              Solid
+            </button>
+            <button
+              onClick={() => onChangeShadingMode("edges")}
+              className={`px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+                shadingMode === "edges"
+                  ? "bg-sky-500/20 text-sky-400 font-semibold"
+                  : "text-neutral-400 hover:text-white hover:bg-neutral-800"
+              }`}
+            >
+              Edges
+            </button>
+            <button
+              onClick={() => onChangeShadingMode("wireframe")}
+              className={`px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+                shadingMode === "wireframe"
+                  ? "bg-sky-500/20 text-sky-400 font-semibold"
+                  : "text-neutral-400 hover:text-white hover:bg-neutral-800"
+              }`}
+            >
+              Wire
+            </button>
+            <button
+              onClick={() => onChangeShadingMode("transparent")}
+              className={`px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+                shadingMode === "transparent"
+                  ? "bg-sky-500/20 text-sky-400 font-semibold"
+                  : "text-neutral-400 hover:text-white hover:bg-neutral-800"
+              }`}
+            >
+              X-Ray
+            </button>
+          </div>
+
+          {/* Color Palette Toggle */}
+          <button
+            onClick={() => setShowColorPicker(!showColorPicker)}
+            title="Material Color & Profile Filaments"
+            className={`p-2 rounded-lg transition-colors flex items-center gap-1.5 shrink-0 ${
+              showColorPicker
+                ? "bg-sky-500/20 text-sky-300"
+                : "hover:bg-neutral-800 text-neutral-300 hover:text-white"
+            }`}
+          >
+            <Palette className="w-4 h-4" />
+            <span
+              className="w-3 h-3 rounded-full border border-white/40"
+              style={{ backgroundColor: modelColor }}
+            />
+          </button>
+
+          {/* Toggle Stats Panel */}
+          <button
+            onClick={() => setShowStats(!showStats)}
+            className={`p-2 rounded-lg transition-colors shrink-0 ${
+              showStats ? "bg-sky-500/20 text-sky-400" : "hover:bg-neutral-800 text-neutral-300"
+            }`}
+            title="Toggle Dimensions & Telemetry"
+          >
+            <Info className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Bottom Right: Dimensional Telemetry HUD */}
       {showStats && stats && (
-        <div className="absolute bottom-6 right-4 z-20 bg-neutral-900/85 backdrop-blur-md border border-neutral-700/60 rounded-xl p-3 text-xs text-neutral-300 shadow-xl w-60 pointer-events-auto">
+        <div className="absolute bottom-6 right-4 z-20 bg-neutral-900/85 backdrop-blur-md border border-neutral-700/60 rounded-xl p-3 text-xs text-neutral-300 shadow-xl w-64 pointer-events-auto">
           <div className="flex items-center justify-between font-mono text-[11px] text-neutral-400 mb-2 border-b border-neutral-800 pb-1">
             <span className="flex items-center gap-1.5 font-bold text-white uppercase tracking-wider">
               <Box className="w-3.5 h-3.5 text-sky-400" /> Metrology HUD
@@ -293,25 +390,60 @@ export function ViewerControls({
               <span className="text-neutral-500">Volume:</span>
               <span className="text-white font-medium">{stats.volumeCm3} cm³</span>
             </div>
+            {stats.partCount !== undefined && stats.partCount > 1 && (
+              <div className="flex justify-between">
+                <span className="text-neutral-500">Parts:</span>
+                <span className="text-white font-medium">{stats.partCount}</span>
+              </div>
+            )}
 
-            {/* Display detected 3MF color swatches */}
-            {stats.colors.length > 0 && stats.colors[0] !== "vertex-colors" && (
+            {/* Display 3MF profile filaments */}
+            {stats.filaments && stats.filaments.length > 0 ? (
               <div className="pt-2 border-t border-neutral-800/80">
-                <span className="text-neutral-500 block mb-1">Color Palette:</span>
-                <div className="flex flex-wrap gap-1">
-                  {stats.colors.slice(0, 10).map((c, i) => (
+                <span className="text-neutral-500 block mb-1.5">Profile Filaments:</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {stats.filaments.map((f) => (
                     <span
-                      key={i}
-                      className="w-3.5 h-3.5 rounded-full border border-white/20"
-                      style={{ backgroundColor: c }}
-                      title={c}
-                    />
+                      key={f.slot}
+                      title={`Slot #${f.slot}${f.type ? ` ${f.type}` : ""}: ${f.color}`}
+                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] ${
+                        f.active === false
+                          ? "border-neutral-800/70 bg-neutral-950/50 text-neutral-500 opacity-65"
+                          : "border-neutral-700 bg-neutral-800/80 text-neutral-200"
+                      }`}
+                    >
+                      <span
+                        className="w-2.5 h-2.5 rounded-full border border-white/25"
+                        style={{ backgroundColor: f.color }}
+                      />
+                      <span>#{f.slot}</span>
+                      {f.type && <span className="text-neutral-400">{f.type}</span>}
+                    </span>
                   ))}
-                  {stats.colors.length > 10 && (
-                    <span className="text-[9px] text-neutral-400">+{stats.colors.length - 10}</span>
-                  )}
                 </div>
               </div>
+            ) : (
+              stats.colors.length > 0 &&
+              stats.colors[0] !== "vertex-colors" && (
+                <div className="pt-2 border-t border-neutral-800/80">
+                  <span className="text-neutral-500 block mb-1">Color Palette:</span>
+                  <div className="flex flex-wrap gap-1">
+                    {stats.colors.slice(0, 10).map((c, i) => (
+                      <span
+                        key={i}
+                        className="w-3.5 h-3.5 rounded-full border border-white/20"
+                        style={{ backgroundColor: c }}
+                        title={c}
+                      />
+                    ))}
+                    {stats.colors.length > 10 && (
+                      <span className="text-[9px] text-neutral-400">
+                        +{stats.colors.length - 10}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )
             )}
           </div>
         </div>

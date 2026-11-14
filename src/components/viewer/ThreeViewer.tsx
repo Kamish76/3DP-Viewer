@@ -6,6 +6,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
   loadSTLModel,
   load3MFModel,
+  recenterAndGroundObject,
   ModelStats,
   Loaded3DModel,
 } from "./loaders";
@@ -39,6 +40,8 @@ export function ThreeViewer({
   const modelRadiusRef = useRef<number>(50);
   const modelColorRef = useRef<string>("#38bdf8");
   const shadingModeRef = useRef<ShadingMode>("shaded");
+  const statsRef = useRef<ModelStats | null>(null);
+  const showGridRef = useRef<boolean>(true);
 
   const [loading, setLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState<string>("Initializing 3D viewport...");
@@ -46,9 +49,65 @@ export function ThreeViewer({
   const [stats, setStats] = useState<ModelStats | null>(null);
   const [shadingMode, setShadingMode] = useState<ShadingMode>("shaded");
   const [modelColor, setModelColor] = useState<string>("#38bdf8");
+  const [isColorOverridden, setIsColorOverridden] = useState<boolean>(false);
   const [showGrid, setShowGrid] = useState<boolean>(true);
   const [autoRotate, setAutoRotate] = useState<boolean>(false);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+
+  const clearEdgesGroup = useCallback(() => {
+    const group = edgesGroupRef.current;
+    if (!group) return;
+    group.traverse((obj) => {
+      if (obj instanceof THREE.LineSegments) {
+        obj.geometry.dispose();
+        if (Array.isArray(obj.material)) {
+          obj.material.forEach((m) => m.dispose());
+        } else {
+          obj.material.dispose();
+        }
+      }
+    });
+    group.clear();
+  }, []);
+
+  const rebuildEdgesGroup = useCallback(() => {
+    const edgesGroup = edgesGroupRef.current;
+    const model = currentModelRef.current;
+    if (!edgesGroup || !model) return;
+
+    clearEdgesGroup();
+    model.updateMatrixWorld(true);
+    model.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.geometry) {
+        const edgesGeom = new THREE.EdgesGeometry(child.geometry, 28);
+        const edgesMat = new THREE.LineBasicMaterial({
+          color: 0x0f172a,
+          linewidth: 1,
+        });
+        const line = new THREE.LineSegments(edgesGeom, edgesMat);
+        line.applyMatrix4(child.matrixWorld);
+        edgesGroup.add(line);
+      }
+    });
+  }, [clearEdgesGroup]);
+
+  const syncGridToRadius = useCallback((radius: number) => {
+    const scene = sceneRef.current;
+    if (!scene || !gridHelperRef.current) return;
+    const gridSize = Math.max(Math.ceil((radius * 3) / 50) * 50, 100);
+    scene.remove(gridHelperRef.current);
+    gridHelperRef.current.dispose();
+    const newGrid = new THREE.GridHelper(
+      gridSize,
+      Math.max(10, Math.floor(gridSize / 10)),
+      0x38bdf8,
+      0x1e293b
+    );
+    newGrid.position.y = 0;
+    newGrid.visible = showGridRef.current;
+    scene.add(newGrid);
+    gridHelperRef.current = newGrid;
+  }, []);
 
   // Initialize Scene, Camera, Renderer, Controls
   useEffect(() => {
@@ -169,7 +228,7 @@ export function ThreeViewer({
     const controls = controlsRef.current;
 
     const dist = Math.max(radius * 2.5, 20);
-    const targetY = radius * 0.5;
+    const targetY = radius * 0.35;
 
     camera.position.set(dist * 0.8, dist * 0.7, dist * 0.8);
     controls.target.set(0, targetY, 0);
@@ -185,7 +244,7 @@ export function ThreeViewer({
       const controls = controlsRef.current;
       const radius = modelRadiusRef.current;
       const dist = Math.max(radius * 2.5, 20);
-      const targetY = radius * 0.5;
+      const targetY = radius * 0.35;
 
       controls.target.set(0, targetY, 0);
 
@@ -221,9 +280,7 @@ export function ThreeViewer({
           scene.remove(currentModelRef.current);
           currentModelRef.current = null;
         }
-        if (edgesGroupRef.current) {
-          edgesGroupRef.current.clear();
-        }
+        clearEdgesGroup();
 
         let loaded: Loaded3DModel;
         if (format === "3mf") {
@@ -235,31 +292,29 @@ export function ThreeViewer({
         const model = loaded.root;
         scene.add(model);
         currentModelRef.current = model;
+        statsRef.current = loaded.stats;
         setStats(loaded.stats);
+        setIsColorOverridden(false);
+
+        if (
+          format === "3mf" &&
+          loaded.stats.colors.length > 0 &&
+          loaded.stats.colors[0] !== "vertex-colors"
+        ) {
+          setModelColor(loaded.stats.colors[0]);
+          modelColorRef.current = loaded.stats.colors[0];
+        }
+
         if (onStatsLoaded) {
           onStatsLoaded(loaded.stats);
         }
 
         // Lazily build edge highlights only if user is already in "edges" mode
         if (edgesGroupRef.current && shadingModeRef.current === "edges") {
-          model.traverse((child) => {
-            if (child instanceof THREE.Mesh && child.geometry) {
-              const edgesGeom = new THREE.EdgesGeometry(child.geometry, 28);
-              const edgesMat = new THREE.LineBasicMaterial({
-                color: 0x0f172a,
-                linewidth: 1,
-              });
-              const line = new THREE.LineSegments(edgesGeom, edgesMat);
-              line.position.copy(child.position);
-              line.rotation.copy(child.rotation);
-              line.scale.copy(child.scale);
-              edgesGroupRef.current?.add(line);
-            }
-          });
+          rebuildEdgesGroup();
           edgesGroupRef.current.visible = true;
         }
 
-        // Adjust grid floor sizing to match model
         const maxDim = Math.max(
           loaded.stats.bbox.width,
           loaded.stats.bbox.depth,
@@ -268,21 +323,7 @@ export function ThreeViewer({
         const radius = Math.max(maxDim, 20);
         modelRadiusRef.current = radius;
 
-        if (gridHelperRef.current) {
-          const gridSize = Math.max(Math.ceil(radius * 3 / 50) * 50, 100);
-          scene.remove(gridHelperRef.current);
-          const newGrid = new THREE.GridHelper(
-            gridSize,
-            Math.max(10, Math.floor(gridSize / 10)),
-            0x38bdf8,
-            0x1e293b
-          );
-          newGrid.position.y = 0;
-          newGrid.visible = true;
-          scene.add(newGrid);
-          gridHelperRef.current = newGrid;
-        }
-
+        syncGridToRadius(radius);
         frameCameraToModel(radius);
         setLoading(false);
       } catch (err: unknown) {
@@ -291,7 +332,7 @@ export function ThreeViewer({
         setLoading(false);
       }
     },
-    [format, onStatsLoaded, frameCameraToModel]
+    [format, onStatsLoaded, frameCameraToModel, clearEdgesGroup, rebuildEdgesGroup, syncGridToRadius]
   );
 
   // Fetch or Load from Buffer
@@ -354,22 +395,8 @@ export function ThreeViewer({
     if (!currentModelRef.current) return;
 
     if (edgesGroupRef.current) {
-      // Lazily build edges geometry on demand if switching to 'edges'
       if (mode === "edges" && edgesGroupRef.current.children.length === 0) {
-        currentModelRef.current.traverse((child) => {
-          if (child instanceof THREE.Mesh && child.geometry) {
-            const edgesGeom = new THREE.EdgesGeometry(child.geometry, 28);
-            const edgesMat = new THREE.LineBasicMaterial({
-              color: 0x0f172a,
-              linewidth: 1,
-            });
-            const line = new THREE.LineSegments(edgesGeom, edgesMat);
-            line.position.copy(child.position);
-            line.rotation.copy(child.rotation);
-            line.scale.copy(child.scale);
-            edgesGroupRef.current?.add(line);
-          }
-        });
+        rebuildEdgesGroup();
       }
       edgesGroupRef.current.visible = mode === "edges";
     }
@@ -400,13 +427,17 @@ export function ThreeViewer({
   const handleChangeModelColor = (hex: string) => {
     setModelColor(hex);
     modelColorRef.current = hex;
+    setIsColorOverridden(true);
     if (!currentModelRef.current) return;
 
-    // If format is STL or user overrides single color
     currentModelRef.current.traverse((child) => {
       if (child instanceof THREE.Mesh && child.material) {
         const mats = Array.isArray(child.material) ? child.material : [child.material];
         for (const mat of mats) {
+          if ("vertexColors" in mat && mat.vertexColors) {
+            mat.vertexColors = false;
+            mat.needsUpdate = true;
+          }
           if ("color" in mat && mat.color instanceof THREE.Color) {
             mat.color.set(hex);
           }
@@ -415,10 +446,73 @@ export function ThreeViewer({
     });
   };
 
+  // Restore original 3MF profile/painted colors
+  const handleResetModelColor = () => {
+    if (!currentModelRef.current) return;
+    currentModelRef.current.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.material) {
+        const originalVertexColors = !!child.userData?.originalVertexColors;
+        const originalColor = (child.userData?.originalColor as string) || "#ffffff";
+        const mats = Array.isArray(child.material) ? child.material : [child.material];
+        for (const mat of mats) {
+          if ("vertexColors" in mat && mat.vertexColors !== originalVertexColors) {
+            mat.vertexColors = originalVertexColors;
+            mat.needsUpdate = true;
+          }
+          if ("color" in mat && mat.color instanceof THREE.Color) {
+            mat.color.set(originalColor);
+          }
+        }
+      }
+    });
+
+    setIsColorOverridden(false);
+    const primary = statsRef.current?.colors?.[0];
+    if (primary && primary !== "vertex-colors") {
+      setModelColor(primary);
+      modelColorRef.current = primary;
+    }
+  };
+
+  // Rotate model by 90 degrees around world X/Y/Z axis and re-ground on build plate
+  const handleRotateModel = (axis: "x" | "y" | "z") => {
+    const model = currentModelRef.current;
+    if (!model) return;
+
+    const axisVec =
+      axis === "x"
+        ? new THREE.Vector3(1, 0, 0)
+        : axis === "y"
+        ? new THREE.Vector3(0, 1, 0)
+        : new THREE.Vector3(0, 0, 1);
+
+    model.rotateOnWorldAxis(axisVec, Math.PI / 2);
+    const nextBbox = recenterAndGroundObject(model);
+
+    if (statsRef.current) {
+      const nextStats: ModelStats = { ...statsRef.current, bbox: nextBbox };
+      statsRef.current = nextStats;
+      setStats(nextStats);
+      if (onStatsLoaded) {
+        onStatsLoaded(nextStats);
+      }
+    }
+
+    if (edgesGroupRef.current && shadingModeRef.current === "edges") {
+      rebuildEdgesGroup();
+    }
+
+    const maxDim = Math.max(nextBbox.width, nextBbox.depth, nextBbox.height);
+    const radius = Math.max(maxDim, 20);
+    modelRadiusRef.current = radius;
+    syncGridToRadius(radius);
+  };
+
   // Toggle Grid
   const handleToggleGrid = () => {
     const next = !showGrid;
     setShowGrid(next);
+    showGridRef.current = next;
     if (gridHelperRef.current) {
       gridHelperRef.current.visible = next;
     }
@@ -490,10 +584,13 @@ export function ThreeViewer({
           title={title}
           onResetCamera={() => frameCameraToModel(modelRadiusRef.current)}
           onSetCameraView={handleSetCameraView}
+          onRotateModel={handleRotateModel}
           shadingMode={shadingMode}
           onChangeShadingMode={handleChangeShadingMode}
           modelColor={modelColor}
           onChangeModelColor={handleChangeModelColor}
+          onResetModelColor={handleResetModelColor}
+          isColorOverridden={isColorOverridden}
           showGrid={showGrid}
           onToggleGrid={handleToggleGrid}
           autoRotate={autoRotate}
