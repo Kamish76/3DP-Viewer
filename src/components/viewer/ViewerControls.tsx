@@ -93,6 +93,7 @@ interface ViewerControlsProps {
   onToggleFullscreen: () => void;
   isFullscreen: boolean;
   compact?: boolean;
+  defaultShowStats?: boolean;
   activePlate?: number | null;
   onSelectPlate?: (plateIndex: number | null) => void;
 }
@@ -128,10 +129,11 @@ export function ViewerControls({
   onToggleFullscreen,
   isFullscreen,
   compact = false,
+  defaultShowStats,
   activePlate = null,
   onSelectPlate,
 }: ViewerControlsProps) {
-  const [showStats, setShowStats] = useState(!compact);
+  const [showStats, setShowStats] = useState(defaultShowStats ?? !compact);
   const [showColorPicker, setShowColorPicker] = useState(false);
 
   const canResetProfileColors =
