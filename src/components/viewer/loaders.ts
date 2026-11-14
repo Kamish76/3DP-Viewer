@@ -849,13 +849,50 @@ function buildSlicer3MFMesh(
   }
 
   // Painted / Multi-color path: expand triangles (with TriangleSelector subdivision when needed)
+  const fixedPositions = hasPaintAttr ? null : new Float32Array(triangles.length * 9);
+  const fixedColors = hasPaintAttr ? null : new Float32Array(triangles.length * 9);
+  let fixedPosCursor = 0;
+  let fixedColCursor = 0;
+
   const outPositions: number[] = [];
   const outColors: number[] = [];
   const subPositions: number[] = [];
   const subExtruders: number[] = [];
 
+  const pushPosTri = (
+    x1: number, y1: number, z1: number,
+    x2: number, y2: number, z2: number,
+    x3: number, y3: number, z3: number
+  ) => {
+    if (fixedPositions) {
+      fixedPositions[fixedPosCursor++] = x1;
+      fixedPositions[fixedPosCursor++] = y1;
+      fixedPositions[fixedPosCursor++] = z1;
+      fixedPositions[fixedPosCursor++] = x2;
+      fixedPositions[fixedPosCursor++] = y2;
+      fixedPositions[fixedPosCursor++] = z2;
+      fixedPositions[fixedPosCursor++] = x3;
+      fixedPositions[fixedPosCursor++] = y3;
+      fixedPositions[fixedPosCursor++] = z3;
+    } else {
+      outPositions.push(x1, y1, z1, x2, y2, z2, x3, y3, z3);
+    }
+  };
+
   const pushColorTri = (c1: THREE.Color, c2: THREE.Color, c3: THREE.Color) => {
-    outColors.push(c1.r, c1.g, c1.b, c2.r, c2.g, c2.b, c3.r, c3.g, c3.b);
+    if (fixedColors) {
+      fixedColors[fixedColCursor++] = c1.r;
+      fixedColors[fixedColCursor++] = c1.g;
+      fixedColors[fixedColCursor++] = c1.b;
+      fixedColors[fixedColCursor++] = c2.r;
+      fixedColors[fixedColCursor++] = c2.g;
+      fixedColors[fixedColCursor++] = c2.b;
+      fixedColors[fixedColCursor++] = c3.r;
+      fixedColors[fixedColCursor++] = c3.g;
+      fixedColors[fixedColCursor++] = c3.b;
+    } else {
+      outColors.push(c1.r, c1.g, c1.b, c2.r, c2.g, c2.b, c3.r, c3.g, c3.b);
+    }
   };
 
   for (let i = 0; i < triangles.length; i++) {
@@ -908,9 +945,9 @@ function buildSlicer3MFMesh(
     }
 
     if (flipWinding) {
-      outPositions.push(ax, ay, az, cx, cy, cz, bx, by, bz);
+      pushPosTri(ax, ay, az, cx, cy, cz, bx, by, bz);
     } else {
-      outPositions.push(ax, ay, az, bx, by, bz, cx, cy, cz);
+      pushPosTri(ax, ay, az, bx, by, bz, cx, cy, cz);
     }
 
     const pid = tri.getAttribute("pid") || obj.pid;
@@ -953,8 +990,18 @@ function buildSlicer3MFMesh(
   }
 
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.Float32BufferAttribute(outPositions, 3));
-  geometry.setAttribute("color", new THREE.Float32BufferAttribute(outColors, 3));
+  geometry.setAttribute(
+    "position",
+    fixedPositions
+      ? new THREE.BufferAttribute(fixedPositions, 3)
+      : new THREE.Float32BufferAttribute(outPositions, 3)
+  );
+  geometry.setAttribute(
+    "color",
+    fixedColors
+      ? new THREE.BufferAttribute(fixedColors, 3)
+      : new THREE.Float32BufferAttribute(outColors, 3)
+  );
   geometry.computeVertexNormals();
 
   const material = new THREE.MeshStandardMaterial({
@@ -1073,8 +1120,12 @@ export function load3MFModel(buffer: ArrayBuffer): Loaded3DModel {
     objectId: string,
     parentMatrix: THREE.Matrix4,
     buildObjectId: string,
-    inheritedExtruder: number
+    inheritedExtruder: number,
+    visiting: Set<string>
   ) => {
+    const visitKey = `${docPath}#${objectId}`;
+    if (visiting.has(visitKey)) return;
+
     const doc = modelDocs.get(docPath);
     if (!doc) return;
     const obj = doc.objects.get(objectId);
@@ -1087,36 +1138,41 @@ export function load3MFModel(buffer: ArrayBuffer): Loaded3DModel {
       return;
     }
 
-    const nextExtruder =
-      partSetting?.extruder ?? buildObjSetting?.extruder ?? inheritedExtruder;
+    visiting.add(visitKey);
+    try {
+      const nextExtruder =
+        partSetting?.extruder ?? buildObjSetting?.extruder ?? inheritedExtruder;
 
-    if (obj.mesh) {
-      const meshWorldMatrix =
-        doc.unitScale !== 1.0
-          ? parentMatrix
-              .clone()
-              .multiply(new THREE.Matrix4().makeScale(doc.unitScale, doc.unitScale, doc.unitScale))
-          : parentMatrix;
-      const mesh = buildSlicer3MFMesh(
-        obj,
-        doc,
-        meshWorldMatrix,
-        nextExtruder,
-        profile,
-        usedSlots,
-        usedColors,
-        colorCache
-      );
-      if (mesh) {
-        buildPlateGroup.add(mesh);
-        partCount++;
+      if (obj.mesh) {
+        const meshWorldMatrix =
+          doc.unitScale !== 1.0
+            ? parentMatrix
+                .clone()
+                .multiply(new THREE.Matrix4().makeScale(doc.unitScale, doc.unitScale, doc.unitScale))
+            : parentMatrix;
+        const mesh = buildSlicer3MFMesh(
+          obj,
+          doc,
+          meshWorldMatrix,
+          nextExtruder,
+          profile,
+          usedSlots,
+          usedColors,
+          colorCache
+        );
+        if (mesh) {
+          buildPlateGroup.add(mesh);
+          partCount++;
+        }
       }
-    }
 
-    for (const comp of obj.components) {
-      const compMatrix = scaleMatrixTranslation(comp.transform, doc.unitScale);
-      const nextMatrix = parentMatrix.clone().multiply(compMatrix);
-      traverseObject(comp.path, comp.objectId, nextMatrix, buildObjectId, nextExtruder);
+      for (const comp of obj.components) {
+        const compMatrix = scaleMatrixTranslation(comp.transform, doc.unitScale);
+        const nextMatrix = parentMatrix.clone().multiply(compMatrix);
+        traverseObject(comp.path, comp.objectId, nextMatrix, buildObjectId, nextExtruder, visiting);
+      }
+    } finally {
+      visiting.delete(visitKey);
     }
   };
 
@@ -1125,13 +1181,13 @@ export function load3MFModel(buffer: ArrayBuffer): Loaded3DModel {
       const itemMatrix = scaleMatrixTranslation(item.transform, rootDoc.unitScale);
       const objSetting = modelSettings.get(item.objectId);
       const defaultExtruder = objSetting?.extruder ?? 1;
-      traverseObject(rootModelPath, item.objectId, itemMatrix, item.objectId, defaultExtruder);
+      traverseObject(rootModelPath, item.objectId, itemMatrix, item.objectId, defaultExtruder, new Set());
     }
   } else {
     // Some CAD exporters omit <build> items; render top-level objects in rootDoc
     for (const [oid] of rootDoc.objects) {
       const objSetting = modelSettings.get(oid);
-      traverseObject(rootModelPath, oid, new THREE.Matrix4(), oid, objSetting?.extruder ?? 1);
+      traverseObject(rootModelPath, oid, new THREE.Matrix4(), oid, objSetting?.extruder ?? 1, new Set());
     }
   }
 
