@@ -1,5 +1,6 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import JSZip from "jszip";
 import { parseDocument } from "htmlparser2";
 import type { ChildNode, Element } from "domhandler";
@@ -240,4 +241,88 @@ test("load3MFModel pre-allocated multi-color colorgroup path preserves vertex co
   const loaded = load3MFModel(buf);
   assert.equal(loaded.stats.triangleCount, 1);
   assert.deepEqual(loaded.stats.colors, ["#ff0000", "#0000ff"]);
+});
+
+test("load3MFModel extracts multi-plate metadata, compacts inter-plate gaps, and filters plates", async () => {
+  const { load3MFModel, applyPlateFilter } = await import("../src/components/viewer/loaders");
+  const buf = await make3mfBuffer({
+    "3D/3dmodel.model": `<?xml version="1.0" encoding="UTF-8"?>
+      <model unit="millimeter" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+        <resources>
+          <object id="1" type="model">${BOX_MESH_XML}</object>
+          <object id="2" type="model">${BOX_MESH_XML}</object>
+        </resources>
+        <build>
+          <item objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>
+          <item objectid="2" transform="1 0 0 0 1 0 0 0 1 300 0 0"/>
+        </build>
+      </model>`,
+    "Metadata/project_settings.config": JSON.stringify({
+      filament_colour: ["#161616", "#ddbc00"],
+      filament_type: ["PLA", "PLA"],
+    }),
+    "Metadata/model_settings.config": `
+      <config>
+        <object id="1"><metadata key="extruder" value="1"/></object>
+        <object id="2"><metadata key="extruder" value="2"/></object>
+        <plate>
+          <metadata key="plater_id" value="1"/>
+          <metadata key="plater_name" value="Base"/>
+          <model_instance><metadata key="object_id" value="1"/></model_instance>
+        </plate>
+        <plate>
+          <metadata key="plater_id" value="2"/>
+          <metadata key="plater_name" value="Top"/>
+          <model_instance><metadata key="object_id" value="2"/></model_instance>
+        </plate>
+      </config>`,
+  });
+
+  const loaded = load3MFModel(buf);
+  assert.equal(loaded.stats.plates?.length, 2);
+  assert.equal(loaded.stats.plates?.[0]?.name, "Base");
+  assert.deepEqual(loaded.stats.plates?.[0]?.colors, ["#161616"]);
+  assert.deepEqual(loaded.stats.plates?.[1]?.colors, ["#ddbc00"]);
+  // Two 1mm boxes separated by a 24mm compacted gap -> ~26mm width instead of 301mm
+  assert.ok(loaded.stats.bbox.width < 30, `expected compacted width < 30, got ${loaded.stats.bbox.width}`);
+
+  const p1 = applyPlateFilter(loaded.root, 1);
+  assert.equal(p1.triangleCount, 12);
+  assert.deepEqual(p1.colors, ["#161616"]);
+  assert.ok(Math.abs(p1.bbox.width - 1) < 0.05);
+
+  const p2 = applyPlateFilter(loaded.root, 2);
+  assert.equal(p2.triangleCount, 12);
+  assert.deepEqual(p2.colors, ["#ddbc00"]);
+
+  const all = applyPlateFilter(loaded.root, null);
+  assert.equal(all.triangleCount, 24);
+  assert.ok(all.bbox.width < 30);
+});
+
+test("load3MFModel handles Doctors trophy's.3mf multi-plate colors and upright orientation", async () => {
+  const samplePath =
+    "/Users/Kamish/Library/CloudStorage/GoogleDrive-jabezrafael1@gmail.com/Other computers/Ideapad Gaming 3/3d printing shiz/orders from peeps/Doctors trophy's.3mf";
+  if (!fs.existsSync(samplePath)) return;
+
+  const { load3MFModel, applyPlateFilter } = await import("../src/components/viewer/loaders");
+  const raw = fs.readFileSync(samplePath);
+  const ab = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
+  const loaded = load3MFModel(ab);
+
+  assert.equal(loaded.stats.plates?.length, 2);
+  assert.equal(loaded.stats.filaments?.length, 3);
+  assert.ok(loaded.stats.bbox.height > 120, `expected upright height > 120mm, got ${loaded.stats.bbox.height}`);
+  assert.equal(loaded.stats.hasColors, true);
+
+  const p1 = applyPlateFilter(loaded.root, 1);
+  assert.equal(p1.triangleCount, 395196);
+  assert.equal(p1.colors.length, 3);
+
+  const p2 = applyPlateFilter(loaded.root, 2);
+  assert.equal(p2.triangleCount, 5454);
+  assert.equal(p2.colors.length, 2);
+
+  const all = applyPlateFilter(loaded.root, null);
+  assert.equal(all.triangleCount, 400650);
 });

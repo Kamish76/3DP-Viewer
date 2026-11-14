@@ -46,6 +46,25 @@ interface ModelRecord {
   createdAt: string;
 }
 
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  const blockSize = 0x8000;
+  const parts: string[] = [];
+  for (let i = 0; i < bytes.length; i += blockSize) {
+    const slice = bytes.subarray(i, i + blockSize);
+    parts.push(String.fromCharCode.apply(null, Array.from(slice)));
+  }
+  return btoa(parts.join(""));
+}
+
+async function parseApiJson<T = Record<string, unknown>>(res: Response): Promise<T> {
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`Server error (${res.status}): ${text.slice(0, 120) || res.statusText}`);
+  }
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -68,6 +87,7 @@ export default function AdminPage() {
   const [description, setDescription] = useState("");
   const [previewStats, setPreviewStats] = useState<ModelStats | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
 
@@ -173,41 +193,76 @@ export default function AdminPage() {
     }
   };
 
-  // Upload to Neon Handler
+  // Upload to Neon Handler (chunked at 1.5 MiB binary / ~2.0 MiB base64 to stay under Vercel's 4.5 MB cap)
   const handleUpload = async () => {
     if (!selectedFile) return;
     setUploading(true);
     setUploadError(null);
+    setUploadProgress(null);
 
     try {
-      const formData = new FormData();
-      formData.append("file", selectedFile);
-      formData.append("title", title);
-      formData.append("description", description);
-
-      if (previewStats) {
-        formData.append("bboxX", previewStats.bbox.width.toString());
-        formData.append("bboxY", previewStats.bbox.depth.toString());
-        formData.append("bboxZ", previewStats.bbox.height.toString());
-        formData.append("triangleCount", previewStats.triangleCount.toString());
-        formData.append(
-          "colorInfo",
-          JSON.stringify({
-            hasColors: previewStats.hasColors,
-            colorCount: previewStats.colors.length,
-            colors: previewStats.colors,
-          })
-        );
+      const rawBytes = new Uint8Array(fileBuffer ?? (await selectedFile.arrayBuffer()));
+      if (rawBytes.length === 0) {
+        throw new Error("Selected file is empty.");
       }
 
-      const res = await fetch("/api/models/upload", {
-        method: "POST",
-        body: formData,
-      });
+      // 1,572,864 bytes (1.5 MiB) is divisible by 3 so each Base64 chunk has zero '=' padding
+      const CHUNK_BYTE_SIZE = 1572864;
+      const totalChunks = Math.max(1, Math.ceil(rawBytes.length / CHUNK_BYTE_SIZE));
+      let slug = "";
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Upload failed");
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_BYTE_SIZE;
+        const end = Math.min(start + CHUNK_BYTE_SIZE, rawBytes.length);
+        const chunkBase64 = uint8ArrayToBase64(rawBytes.subarray(start, end));
+        const isLastChunk = i === totalChunks - 1;
+        const pct = Math.round(((i + 1) / totalChunks) * 100);
+        setUploadProgress(
+          totalChunks > 1 ? `Uploading part ${i + 1} of ${totalChunks} (${pct}%)...` : "Uploading..."
+        );
+
+        const payload =
+          i === 0
+            ? {
+                phase: "init",
+                fileName: selectedFile.name,
+                fileSize: selectedFile.size,
+                title,
+                description,
+                bboxX: previewStats?.bbox.width ?? null,
+                bboxY: previewStats?.bbox.depth ?? null,
+                bboxZ: previewStats?.bbox.height ?? null,
+                triangleCount: previewStats?.triangleCount ?? null,
+                colorInfo: previewStats
+                  ? {
+                      hasColors: previewStats.hasColors,
+                      colorCount: previewStats.colors.length,
+                      colors: previewStats.colors,
+                    }
+                  : {},
+                chunkBase64,
+                isLastChunk,
+              }
+            : {
+                phase: "append",
+                slug,
+                chunkBase64,
+                isLastChunk,
+              };
+
+        const res = await fetch("/api/models/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await parseApiJson<{ error?: string; slug?: string }>(res);
+        if (!res.ok) {
+          throw new Error(data.error || "Upload failed");
+        }
+        if (i === 0 && data.slug) {
+          slug = data.slug;
+        }
       }
 
       // Reset upload card & refresh list
@@ -221,6 +276,7 @@ export default function AdminPage() {
       setUploadError(err instanceof Error ? err.message : "Failed to upload model");
     } finally {
       setUploading(false);
+      setUploadProgress(null);
     }
   };
 
@@ -491,6 +547,14 @@ export default function AdminPage() {
                             : "Single material"}
                         </span>
                       </div>
+                      {previewStats.plates && previewStats.plates.length > 1 && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Build Plates:</span>
+                          <span className="text-purple-300 font-bold">
+                            {previewStats.plates.length} plates
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -512,7 +576,10 @@ export default function AdminPage() {
                     className="flex-1 py-2.5 px-4 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-medium text-xs rounded-xl transition-all shadow-lg shadow-sky-500/25 flex items-center justify-center gap-2 disabled:opacity-50"
                   >
                     {uploading ? (
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>{uploadProgress || "Uploading..."}</span>
+                      </>
                     ) : (
                       <>
                         <UploadCloud className="w-4 h-4" />

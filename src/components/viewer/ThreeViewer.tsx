@@ -7,6 +7,7 @@ import {
   loadSTLModel,
   load3MFModel,
   recenterAndGroundObject,
+  applyPlateFilter,
   ModelStats,
   Loaded3DModel,
 } from "./loaders";
@@ -66,6 +67,7 @@ export function ThreeViewer({
   const [showGrid, setShowGrid] = useState<boolean>(true);
   const [autoRotate, setAutoRotate] = useState<boolean>(false);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [activePlate, setActivePlate] = useState<number | null>(null);
 
   const clearEdgesGroup = useCallback(() => {
     const group = edgesGroupRef.current;
@@ -82,7 +84,7 @@ export function ThreeViewer({
     clearEdgesGroup();
     model.updateMatrixWorld(true);
     model.traverse((child) => {
-      if (child instanceof THREE.Mesh && child.geometry) {
+      if (child instanceof THREE.Mesh && child.visible && child.geometry) {
         const edgesGeom = new THREE.EdgesGeometry(child.geometry, 28);
         const edgesMat = new THREE.LineBasicMaterial({
           color: 0x0f172a,
@@ -308,6 +310,7 @@ export function ThreeViewer({
         currentModelRef.current = model;
         statsRef.current = loaded.stats;
         setStats(loaded.stats);
+        setActivePlate(null);
         setIsColorOverridden(false);
 
         if (
@@ -365,22 +368,67 @@ export function ThreeViewer({
     if (fileUrl) {
       setLoadingMessage("Downloading 3D asset from server...");
       let active = true;
+      const sep = fileUrl.includes("?") ? "&" : "?";
 
-      fetch(fileUrl)
-        .then((res) => {
-          if (!res.ok) {
-            if (res.status === 403) {
-              throw new Error("Private model: Access denied");
+      const downloadBuffer = async (): Promise<ArrayBuffer> => {
+        // Probe metadata first so files exceeding Vercel's 4.5 MB payload limit stream in slices
+        try {
+          const metaRes = await fetch(`${fileUrl}${sep}meta=1`);
+          if (metaRes.status === 403) {
+            throw new Error("Private model: Access denied");
+          }
+          if (metaRes.status === 404) {
+            throw new Error("HTTP 404: Model not found");
+          }
+          if (metaRes.ok) {
+            const meta = (await metaRes.json()) as { base64Length?: number };
+            const totalB64 = Number(meta.base64Length || 0);
+            const CHUNK_B64 = 2097152; // 2 MiB base64 == 1.5 MiB binary
+            if (totalB64 > CHUNK_B64) {
+              const parts: Uint8Array[] = [];
+              let totalBytes = 0;
+              for (let offset = 0; offset < totalB64; offset += CHUNK_B64) {
+                if (!active) break;
+                const length = Math.min(CHUNK_B64, totalB64 - offset);
+                const pct = Math.min(99, Math.round(((offset + length) / totalB64) * 100));
+                setLoadingMessage(`Downloading 3D asset (${pct}%)...`);
+                const chunkRes = await fetch(`${fileUrl}${sep}offset=${offset}&length=${length}`);
+                if (!chunkRes.ok) {
+                  throw new Error(`HTTP ${chunkRes.status}: Failed to download model chunk`);
+                }
+                const arr = new Uint8Array(await chunkRes.arrayBuffer());
+                parts.push(arr);
+                totalBytes += arr.byteLength;
+              }
+              const combined = new Uint8Array(totalBytes);
+              let cursor = 0;
+              for (const p of parts) {
+                combined.set(p, cursor);
+                cursor += p.byteLength;
+              }
+              return combined.buffer;
             }
-            throw new Error(`HTTP ${res.status}: Failed to download model`);
           }
-          if (active) {
-            setLoadingMessage(`Parsing ${format.toUpperCase()} geometry & materials...`);
+        } catch (metaErr) {
+          if (metaErr instanceof Error && /Private model|HTTP 404|model chunk/.test(metaErr.message)) {
+            throw metaErr;
           }
-          return res.arrayBuffer();
-        })
+        }
+
+        const res = await fetch(fileUrl);
+        if (!res.ok) {
+          if (res.status === 403) {
+            throw new Error("Private model: Access denied");
+          }
+          throw new Error(`HTTP ${res.status}: Failed to download model`);
+        }
+        return res.arrayBuffer();
+      };
+
+      downloadBuffer()
         .then((buf) => {
           if (active) {
+            setLoadingMessage(`Parsing ${format.toUpperCase()} geometry & materials...`);
             setTimeout(() => {
               if (active) processBuffer(buf);
             }, 30);
@@ -522,6 +570,39 @@ export function ThreeViewer({
     syncGridToRadius(radius);
   };
 
+  // Switch between All Plates or an individual 1-based build plate
+  const handleSelectPlate = (plateIndex: number | null) => {
+    const model = currentModelRef.current;
+    if (!model || !statsRef.current) return;
+
+    setActivePlate(plateIndex);
+    const filtered = applyPlateFilter(model, plateIndex);
+    const nextStats: ModelStats = {
+      ...statsRef.current,
+      bbox: filtered.bbox,
+      triangleCount: filtered.triangleCount,
+      vertexCount: filtered.vertexCount,
+      volumeCm3: filtered.volumeCm3,
+      colors: filtered.colors,
+      hasColors: filtered.colors.length > 1 || filtered.colors.includes("vertex-colors"),
+    };
+    statsRef.current = nextStats;
+    setStats(nextStats);
+    if (onStatsLoaded) {
+      onStatsLoaded(nextStats);
+    }
+
+    if (edgesGroupRef.current && shadingModeRef.current === "edges") {
+      rebuildEdgesGroup();
+    }
+
+    const maxDim = Math.max(filtered.bbox.width, filtered.bbox.depth, filtered.bbox.height);
+    const radius = Math.max(maxDim, 20);
+    modelRadiusRef.current = radius;
+    syncGridToRadius(radius);
+    frameCameraToModel(radius);
+  };
+
   // Toggle Grid
   const handleToggleGrid = () => {
     const next = !showGrid;
@@ -612,6 +693,8 @@ export function ThreeViewer({
           onTakeScreenshot={handleTakeScreenshot}
           onToggleFullscreen={handleToggleFullscreen}
           isFullscreen={isFullscreen}
+          activePlate={activePlate}
+          onSelectPlate={handleSelectPlate}
         />
       )}
     </div>
