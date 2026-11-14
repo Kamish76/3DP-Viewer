@@ -21,6 +21,7 @@ interface ThreeViewerProps {
   onStatsLoaded?: (stats: ModelStats) => void;
   className?: string;
   compact?: boolean;
+  defaultShowStats?: boolean;
 }
 
 function disposeObject3D(root: THREE.Object3D) {
@@ -44,6 +45,7 @@ export function ThreeViewer({
   onStatsLoaded,
   className = "",
   compact = false,
+  defaultShowStats,
 }: ThreeViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -69,6 +71,7 @@ export function ThreeViewer({
   const [showGrid, setShowGrid] = useState<boolean>(true);
   const [autoRotate, setAutoRotate] = useState<boolean>(false);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [isNarrowContainer, setIsNarrowContainer] = useState<boolean>(false);
   const [activePlate, setActivePlate] = useState<number | null>(null);
 
   const clearEdgesGroup = useCallback(() => {
@@ -124,6 +127,7 @@ export function ThreeViewer({
 
     const width = container.clientWidth || 800;
     const height = container.clientHeight || 600;
+    setIsNarrowContainer(width < 680);
 
     // 1. Scene
     const scene = new THREE.Scene();
@@ -219,6 +223,7 @@ export function ThreeViewer({
       const w = container.clientWidth;
       const h = container.clientHeight;
       if (w <= 0 || h <= 0) return;
+      setIsNarrowContainer(w < 680);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -757,7 +762,8 @@ export function ThreeViewer({
           onTakeScreenshot={handleTakeScreenshot}
           onToggleFullscreen={handleToggleFullscreen}
           isFullscreen={isFullscreen}
-          compact={compact && !isFullscreen}
+          compact={(compact || isNarrowContainer) && !isFullscreen}
+          defaultShowStats={defaultShowStats}
           activePlate={activePlate}
           onSelectPlate={handleSelectPlate}
         />
